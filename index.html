@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Optimizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow">
+        <h1 class="text-2xl font-bold mb-6">Route Optimizer</h1>
+
+        <div class="mb-4">
+            <label class="block text-gray-700 mb-2">Origin Address:</label>
+            <input type="text" id="origin" class="w-full p-2 border rounded"
+                   placeholder="15615 W 135th St, Olathe, KS">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-gray-700 mb-2">Additional Addresses:</label>
+            <textarea id="addresses" class="w-full p-2 border rounded h-32"
+                      placeholder="Enter one address per line"></textarea>
+        </div>
+
+        <button onclick="optimizeRoute()"
+                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+            Optimize Route
+        </button>
+
+        <div id="result" class="mt-6 hidden">
+            <h2 class="text-xl font-semibold mb-3">Optimized Route:</h2>
+            <ol id="routeList" class="list-decimal pl-6"></ol>
+        </div>
+
+        <div id="map" class="w-full h-96 mt-6 hidden"></div>
+    </div>
+
+    <script>
+        let map;
+        let directionsService;
+        let directionsRenderer;
+
+        // Initialize Google Maps
+        function initMap() {
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer();
+           
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 7,
+                center: { lat: 38.8817, lng: -94.8191 }, // Centered on Olathe, KS
+            });
+           
+            directionsRenderer.setMap(map);
+        }
+
+        async function optimizeRoute() {
+            const apiKey = document.getElementById('apiKey').value;
+            const origin = document.getElementById('origin').value;
+            const addressesText = document.getElementById('addresses').value;
+            const addresses = [origin, ...addressesText.split('\n').filter(a => a.trim())];
+
+            if (!apiKey) {
+                alert('Please enter your Google Maps API key');
+                return;
+            }
+
+            try {
+                // Create distance matrix
+                const matrix = await getDistanceMatrix(addresses, apiKey);
+                const route = nearestNeighbor(matrix, addresses);
+               
+                displayRoute(route);
+                await displayMapRoute(route);
+               
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function getDistanceMatrix(addresses, apiKey) {
+            const service = new google.maps.DistanceMatrixService();
+           
+            const response = await service.getDistanceMatrix({
+                origins: addresses,
+                destinations: addresses,
+                travelMode: google.maps.TravelMode.DRIVING,
+            });
+
+            // Convert response to distance matrix
+            const matrix = [];
+            for (let i = 0; i < addresses.length; i++) {
+                matrix[i] = [];
+                for (let j = 0; j < addresses.length; j++) {
+                    matrix[i][j] = response.rows[i].elements[j].distance.value;
+                }
+            }
+           
+            return matrix;
+        }
+
+        function nearestNeighbor(matrix, addresses) {
+            const n = addresses.length;
+            const visited = new Array(n).fill(false);
+            const route = [0]; // Start with origin (index 0)
+            visited[0] = true;
+
+            while (route.length < n) {
+                const current = route[route.length - 1];
+                let nearest = -1;
+                let minDistance = Infinity;
+
+                for (let i = 0; i < n; i++) {
+                    if (!visited[i] && matrix[current][i] < minDistance) {
+                        nearest = i;
+                        minDistance = matrix[current][i];
+                    }
+                }
+
+                route.push(nearest);
+                visited[nearest] = true;
+            }
+
+            route.push(0); // Return to origin
+            return route.map(index => addresses[index]);
+        }
+
+        async function displayMapRoute(addresses) {
+            const waypoints = addresses.slice(1, -1).map(address => ({
+                location: address,
+                stopover: true
+            }));
+
+            const request = {
+                origin: addresses[0],
+                destination: addresses[0], // Return to origin
+                waypoints: waypoints,
+                optimizeWaypoints: false,
+                travelMode: google.maps.TravelMode.DRIVING,
+            };
+
+            directionsService.route(request, function(result, status) {
+                if (status === 'OK') {
+                    document.getElementById('map').classList.remove('hidden');
+                    directionsRenderer.setDirections(result);
+                } else {
+                    alert('Directions request failed due to ' + status);
+                }
+            });
+        }
+
+        function displayRoute(route) {
+            const resultDiv = document.getElementById('result');
+            const routeList = document.getElementById('routeList');
+           
+            resultDiv.classList.remove('hidden');
+            routeList.innerHTML = '';
+           
+            route.forEach((address, index) => {
+                const li = document.createElement('li');
+                li.className = 'mb-2';
+                li.textContent = `${address}`;
+                routeList.appendChild(li);
+            });
+        }
+    </script>
+    <script async
+        src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap">
+    </script>
+</body>
+</html>
