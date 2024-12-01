@@ -1,10 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
+<!--
+Route Optimizer Web Application
+
+Description:
+    A web application that helps users optimize routes between multiple destinations.
+    The app allows users to input an origin address and multiple destination addresses,
+    then generates the most efficient driving route using Google Maps API.
+
+Key Features:
+    - Geocoding of addresses to coordinates
+    - Route optimization with waypoints
+    - Interactive map display
+    - Ordered list of optimized route stops
+
+Prerequisites:
+    - Google Maps JavaScript API Key
+    - Internet connection
+    - Modern web browser with JavaScript enabled
+
+Usage Instructions:
+    1. Enter the origin address in the first input field
+    2. Enter destination addresses (one per line) in the textarea
+    3. Click "Optimize Route" button
+    4. View the optimized route on the map and in the list
+
+Dependencies:
+    - Google Maps JavaScript API
+    - Tailwind CSS (via CDN)
+
+Important Notes:
+    - Replace 'YOUR_API_KEY_HERE' with an actual Google Maps API key
+    - Ensure you have billing and API usage configured correctly
+    - Route optimization is calculated based on driving distances
+
+Potential Improvements:
+    - Add error handling for invalid addresses
+    - Implement travel mode selection (driving/walking/cycling)
+    - Add distance and estimated time calculations
+    - Support more than 10 waypoints
+
+Author: [Your Name]
+Date: [Current Date]
+Version: 1.0
+-->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Optimizer</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Route Optimizer Diddermobop</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script>
+        // Configuration for API usage
+        window.APP_CONFIG = {
+            GOOGLE_MAPS_API_KEY: 'YOUR_RESTRICTED_API_KEY',
+            DEFAULT_CENTER: { lat: 38.8833, lng: -94.8197 } // Olathe, KS
+        };
+    </script>
 </head>
 <body class="bg-gray-100 p-8">
     <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow">
