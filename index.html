@@ -1,95 +1,70 @@
 <!DOCTYPE html>
 <html lang="en">
-<!--
-Route Optimizer Web Application
-
-Description:
-    A web application that helps users optimize routes between multiple destinations.
-    The app allows users to input an origin address and multiple destination addresses,
-    then generates the most efficient driving route using Google Maps API.
-
-Key Features:
-    - Geocoding of addresses to coordinates
-    - Route optimization with waypoints
-    - Interactive map display
-    - Ordered list of optimized route stops
-
-Prerequisites:
-    - Google Maps JavaScript API Key
-    - Internet connection
-    - Modern web browser with JavaScript enabled
-
-Usage Instructions:
-    1. Enter the origin address in the first input field
-    2. Enter destination addresses (one per line) in the textarea
-    3. Click "Optimize Route" button
-    4. View the optimized route on the map and in the list
-
-Dependencies:
-    - Google Maps JavaScript API
-    - Tailwind CSS (via CDN)
-
-Important Notes:
-    - Replace 'YOUR_API_KEY_HERE' with an actual Google Maps API key
-    - Ensure you have billing and API usage configured correctly
-    - Route optimization is calculated based on driving distances
-
-Potential Improvements:
-    - Add error handling for invalid addresses
-    - Implement travel mode selection (driving/walking/cycling)
-    - Add distance and estimated time calculations
-    - Support more than 10 waypoints
-
-Author: [Your Name]
-Date: [Current Date]
-Version: 1.0
--->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Optimizer Diddermobop</title>
+    <title>Route Optimizer from Google Sheets</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script src="https://apis.google.com/js/api.js"></script>
     <script>
         // Configuration for API usage
         window.APP_CONFIG = {
-            GOOGLE_MAPS_API_KEY: 'YOUR_RESTRICTED_API_KEY',
-            DEFAULT_CENTER: { lat: 38.8833, lng: -94.8197 } // Olathe, KS
+            GOOGLE_MAPS_API_KEY: 'AIzaSyAd1XCie5W1oKAShYIGca9WvWQuRFw-LEM', // Replace with your API key
+            GOOGLE_SHEETS_CONFIG: {
+                spreadsheetId: '1fuVpqplxB4AZu5kijG2Rm3mB4Q7CZzPaDh0tnHXfcC4', // Replace with your Google Sheets ID
+                range: 'Sheet1!A2:I' // Adjust based on your sheet's structure
+            }
         };
-    </script>
-</head>
-<body class="bg-gray-100 p-8">
-    <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow">
-        <h1 class="text-2xl font-bold mb-6">Route Optimizer</h1>
 
-        <div class="mb-4">
-            <label class="block text-gray-700 mb-2">Origin Address:</label>
-            <input type="text" id="origin" class="w-full p-2 border rounded"
-                   placeholder="15615 W 135th St, Olathe, KS">
-        </div>
-
-        <div class="mb-4">
-            <label class="block text-gray-700 mb-2">Additional Addresses:</label>
-            <textarea id="addresses" class="w-full p-2 border rounded h-32"
-                      placeholder="Enter one address per line"></textarea>
-        </div>
-
-        <button onclick="optimizeRoute()"
-                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-            Optimize Route
-        </button>
-
-        <div id="result" class="mt-6 hidden">
-            <h2 class="text-xl font-semibold mb-3">Optimized Route:</h2>
-            <ol id="routeList" class="list-decimal pl-6"></ol>
-        </div>
-
-        <div id="map" class="w-full h-96 mt-6 hidden"></div>
-    </div>
-
-    <script>
+        let addresses = [];
         let map;
         let directionsService;
         let directionsRenderer;
+
+        // Initialize Google API Client
+        function initClient() {
+            console.log('Initializing Google API Client');
+            gapi.load('client', () => {
+                console.log('gapi client loaded');
+                gapi.client.init({
+                    apiKey: APP_CONFIG.GOOGLE_MAPS_API_KEY,
+                    discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
+                }).then(() => {
+                    console.log('gapi client initialized successfully');
+                    // Fetch addresses from Google Sheets
+                    fetchAddressesFromSheets();
+                }).catch((error) => {
+                    console.error('Error initializing client', error);
+                });
+            });
+        }
+
+        // Fetch addresses from Google Sheets
+        function fetchAddressesFromSheets() {
+            const { spreadsheetId, range } = APP_CONFIG.GOOGLE_SHEETS_CONFIG;
+            
+            gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: spreadsheetId,
+                range: range,
+            }).then((response) => {
+                const rows = response.result.values;
+                addresses = rows.map(row => {
+                    // Assuming columns: [Name, Street, City, State, Zip]
+                    // Adjust the index based on your actual sheet structure
+                    const street = row[2] || '';
+                    const city = row[3] || 'Olathe'; // Default city
+                    const state = row[4] || 'KS';    // Default state
+                    const zip = row[5] || ''; // Optional zip code
+                    
+                    return `${street}, ${city}, ${state} ${zip}`.trim();
+                }).filter(address => address);
+
+                // Once addresses are loaded, initialize the map and route optimization
+                initMap();
+            }).catch((error) => {
+                console.error('Error fetching addresses', error);
+            });
+        }
 
         // Initialize Google Maps
         function initMap() {
@@ -102,42 +77,36 @@ Version: 1.0
             });
            
             directionsRenderer.setMap(map);
+
+            // Trigger route optimization after map initialization
+            optimizeRoute();
         }
 
-        async function optimizeRoute() {
-            const apiKey = document.getElementById('apiKey').value;
-            const origin = document.getElementById('origin').value;
-            const addressesText = document.getElementById('addresses').value;
-            const addresses = [origin, ...addressesText.split('\n').filter(a => a.trim())];
-
-            if (!apiKey) {
-                alert('Please enter your Google Maps API key');
+        function optimizeRoute() {
+            if (addresses.length < 2) {
+                alert('Not enough addresses to optimize route');
                 return;
             }
 
-            try {
-                // Create distance matrix
-                const matrix = await getDistanceMatrix(addresses, apiKey);
-                const route = nearestNeighbor(matrix, addresses);
-               
-                displayRoute(route);
-                await displayMapRoute(route);
-               
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
+            // Use the first address as both origin and destination
+            const origin = addresses[0];
 
-        async function getDistanceMatrix(addresses, apiKey) {
+            // Calculate distance matrix
             const service = new google.maps.DistanceMatrixService();
-           
-            const response = await service.getDistanceMatrix({
+            service.getDistanceMatrix({
                 origins: addresses,
                 destinations: addresses,
                 travelMode: google.maps.TravelMode.DRIVING,
-            });
+            }, processDistanceMatrix);
+        }
 
-            // Convert response to distance matrix
+        function processDistanceMatrix(response, status) {
+            if (status !== google.maps.DistanceMatrixStatus.OK) {
+                alert('Error calculating distance matrix');
+                return;
+            }
+
+            // Create distance matrix
             const matrix = [];
             for (let i = 0; i < addresses.length; i++) {
                 matrix[i] = [];
@@ -145,14 +114,19 @@ Version: 1.0
                     matrix[i][j] = response.rows[i].elements[j].distance.value;
                 }
             }
-           
-            return matrix;
+
+            // Find optimal route using nearest neighbor
+            const route = nearestNeighbor(matrix, addresses);
+            
+            // Display route on map and in list
+            displayMapRoute(route);
+            displayRouteList(route);
         }
 
         function nearestNeighbor(matrix, addresses) {
             const n = addresses.length;
             const visited = new Array(n).fill(false);
-            const route = [0]; // Start with origin (index 0)
+            const route = [0]; // Start with first address
             visited[0] = true;
 
             while (route.length < n) {
@@ -171,11 +145,11 @@ Version: 1.0
                 visited[nearest] = true;
             }
 
-            route.push(0); // Return to origin
+            route.push(0); // Return to first address
             return route.map(index => addresses[index]);
         }
 
-        async function displayMapRoute(addresses) {
+        function displayMapRoute(addresses) {
             const waypoints = addresses.slice(1, -1).map(address => ({
                 location: address,
                 stopover: true
@@ -199,7 +173,7 @@ Version: 1.0
             });
         }
 
-        function displayRoute(route) {
+        function displayRouteList(route) {
             const resultDiv = document.getElementById('result');
             const routeList = document.getElementById('routeList');
            
@@ -209,13 +183,35 @@ Version: 1.0
             route.forEach((address, index) => {
                 const li = document.createElement('li');
                 li.className = 'mb-2';
-                li.textContent = `${address}`;
+                li.textContent = `${index + 1}. ${address}`;
                 routeList.appendChild(li);
             });
         }
+
+        // Load the Google Sheets API and Google Maps API
+        window.addEventListener('load', () => {
+            gapi.load('client:auth2', initClient);
+        });
     </script>
-    <script async
-        src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap">
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow">
+        <h1 class="text-2xl font-bold mb-6">Route Optimizer from Google Sheets</h1>
+
+        <div id="result" class="mt-6 hidden">
+            <h2 class="text-xl font-semibold mb-3">Optimized Route:</h2>
+            <ol id="routeList" class="list-decimal pl-6"></ol>
+        </div>
+
+        <div id="map" class="w-full h-96 mt-6 hidden"></div>
+        <p>Bro, what be happenin?</p>
+    </div>
+
+    <script
+        src ="https://maps.googleapis.com/maps/api/js?key=AIzaSyAd1XCie5W1oKAShYIGca9WvWQuRFw-LEM&libraries=geometry"
+        async
+        defer
+        id="google-maps-script">
     </script>
 </body>
 </html>
