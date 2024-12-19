@@ -3,130 +3,202 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Optimizer from Google Sheets</title>
+    <title>Van Ministry Route Optimizer</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
-    <script src="https://apis.google.com/js/api.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow">
+        <h1 class="text-2xl font-bold mb-6">Van Ministry Route Optimizer</h1>
+
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Upload Van Ministry Form CSV</label>
+            <input type="file" id="csvFile" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Service Time Filter</label>
+            <select id="serviceFilter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
+                <option value="all">All Services</option>
+                <option value="Sunday">Sunday Service</option>
+                <option value="Wednesday">Wednesday Service</option>
+            </select>
+        </div>
+
+        <div id="error-messages" class="text-red-500 mb-4"></div>
+
+        <div id="summary" class="mt-6 mb-6 hidden">
+            <h2 class="text-xl font-semibold mb-3">Route Summary</h2>
+            <div id="summaryContent" class="bg-gray-50 p-4 rounded"></div>
+        </div>
+
+        <div id="result" class="mt-6 hidden">
+            <h2 class="text-xl font-semibold mb-3">Optimized Route:</h2>
+            <ol id="routeList" class="list-decimal pl-6"></ol>
+        </div>
+
+        <div id="map" class="w-full h-96 mt-6 hidden rounded-lg shadow"></div>
+    </div>
+
     <script>
-        // Configuration for API usage
-        window.APP_CONFIG = {
-            GOOGLE_MAPS_API_KEY: 'AIzaSyAd1XCie5W1oKAShYIGca9WvWQuRFw-LEM', // Replace with your API key
-            GOOGLE_SHEETS_CONFIG: {
-                spreadsheetId: '1fuVpqplxB4AZu5kijG2Rm3mB4Q7CZzPaDh0tnHXfcC4', // Replace with your Google Sheets ID
-                range: 'Sheet1!A2:I' // Adjust based on your sheet's structure
-            }
+        const APP_CONFIG = {
+            GOOGLE_MAPS_API_KEY: 'AIzaSyAd1XCie5W1oKAShYIGca9WvWQuRFw-LEM'
         };
 
-        let addresses = [];
-        let map;
-        let directionsService;
-        let directionsRenderer;
+        function displayError(message) {
+            console.error(message);
+            const errorDiv = document.getElementById('error-messages');
+            errorDiv.innerHTML += `<p class="text-red-500">${message}</p>`;
+        }
 
-        // Initialize Google API Client
-        function initClient() {
-            console.log('Initializing Google API Client');
-            gapi.load('client', () => {
-                console.log('gapi client loaded');
-                gapi.client.init({
-                    apiKey: APP_CONFIG.GOOGLE_MAPS_API_KEY,
-                    discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
-                }).then(() => {
-                    console.log('gapi client initialized successfully');
-                    // Fetch addresses from Google Sheets
-                    fetchAddressesFromSheets();
-                }).catch((error) => {
-                    console.error('Error initializing client', error);
-                });
+        function loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.defer = true;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
             });
         }
 
-        // Fetch addresses from Google Sheets
-        function fetchAddressesFromSheets() {
-            const { spreadsheetId, range } = APP_CONFIG.GOOGLE_SHEETS_CONFIG;
-            
-            gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId: spreadsheetId,
-                range: range,
-            }).then((response) => {
-                const rows = response.result.values;
-                addresses = rows.map(row => {
-                    // Assuming columns: [Name, Street, City, State, Zip]
-                    // Adjust the index based on your actual sheet structure
-                    const street = row[2] || '';
-                    const city = row[3] || 'Olathe'; // Default city
-                    const state = row[4] || 'KS';    // Default state
-                    const zip = row[5] || ''; // Optional zip code
+        function parseCSV(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const csv = event.target.result;
+                    const lines = csv.split('\n');
+                    const headers = lines[0].split(',');
                     
-                    return `${street}, ${city}, ${state} ${zip}`.trim();
-                }).filter(address => address);
+                    // Find the indices for the columns we need
+                    const streetIndex = headers.indexOf('Home Address Street');
+                    const cityIndex = headers.indexOf('Home Address City');
+                    const stateIndex = headers.indexOf('Home Address State');
+                    const zipIndex = headers.indexOf('Home Address Zip');
+                    const serviceIndex = headers.indexOf('Which service do you need a ride to?');
+                    const nameIndex = headers.indexOf('First Name');
+                    const lastNameIndex = headers.indexOf('Last Name');
+                    const phoneIndex = headers.indexOf('Mobile Phone Number');
+                    const notesIndex = headers.indexOf('Please list any physical needs that would affect transportation. If you don\'t have any, type NONE.');
 
-                // Once addresses are loaded, initialize the map and route optimization
-                initMap();
-            }).catch((error) => {
-                console.error('Error fetching addresses', error);
+                    if (streetIndex === -1 || cityIndex === -1 || stateIndex === -1 || zipIndex === -1) {
+                        throw new Error('Required address columns not found in CSV');
+                    }
+
+                    const records = lines.slice(1).map(line => {
+                        if (!line.trim()) return null;
+                        const values = line.split(',');
+                        return {
+                            name: `${values[nameIndex]} ${values[lastNameIndex]}`.trim(),
+                            street: values[streetIndex],
+                            city: values[cityIndex],
+                            state: values[stateIndex],
+                            zip: values[zipIndex],
+                            service: values[serviceIndex],
+                            phone: values[phoneIndex],
+                            notes: values[notesIndex] || 'None',
+                            fullAddress: `${values[streetIndex]}, ${values[cityIndex]}, ${values[stateIndex]} ${values[zipIndex]}`
+                        };
+                    }).filter(record => record && record.street && record.city && record.state);
+
+                    resolve(records);
+                };
+                reader.onerror = reject;
+                reader.readAsText(file);
             });
         }
 
-        // Initialize Google Maps
-        function initMap() {
-            directionsService = new google.maps.DirectionsService();
-            directionsRenderer = new google.maps.DirectionsRenderer();
-           
-            map = new google.maps.Map(document.getElementById("map"), {
-                zoom: 7,
-                center: { lat: 38.8817, lng: -94.8191 }, // Centered on Olathe, KS
-            });
-           
-            directionsRenderer.setMap(map);
-
-            // Trigger route optimization after map initialization
-            optimizeRoute();
+        async function initializeApp() {
+            try {
+                await loadScript(`https://maps.googleapis.com/maps/api/js?key=${APP_CONFIG.GOOGLE_MAPS_API_KEY}&libraries=geometry`);
+                
+                const csvFileInput = document.getElementById('csvFile');
+                const serviceFilter = document.getElementById('serviceFilter');
+                
+                csvFileInput.addEventListener('change', handleFileSelect);
+                serviceFilter.addEventListener('change', handleFileSelect);
+            } catch (error) {
+                displayError(`Initialization Error: ${error.message}`);
+            }
         }
 
-        function optimizeRoute() {
-            if (addresses.length < 2) {
-                alert('Not enough addresses to optimize route');
-                return;
-            }
-
-            // Use the first address as both origin and destination
-            const origin = addresses[0];
-
-            // Calculate distance matrix
-            const service = new google.maps.DistanceMatrixService();
-            service.getDistanceMatrix({
-                origins: addresses,
-                destinations: addresses,
-                travelMode: google.maps.TravelMode.DRIVING,
-            }, processDistanceMatrix);
-        }
-
-        function processDistanceMatrix(response, status) {
-            if (status !== google.maps.DistanceMatrixStatus.OK) {
-                alert('Error calculating distance matrix');
-                return;
-            }
-
-            // Create distance matrix
-            const matrix = [];
-            for (let i = 0; i < addresses.length; i++) {
-                matrix[i] = [];
-                for (let j = 0; j < addresses.length; j++) {
-                    matrix[i][j] = response.rows[i].elements[j].distance.value;
-                }
-            }
-
-            // Find optimal route using nearest neighbor
-            const route = nearestNeighbor(matrix, addresses);
+        async function handleFileSelect(event) {
+            const file = document.getElementById('csvFile').files[0];
+            const serviceFilter = document.getElementById('serviceFilter').value;
             
-            // Display route on map and in list
-            displayMapRoute(route);
-            displayRouteList(route);
+            if (!file) return;
+
+            try {
+                const records = await parseCSV(file);
+                
+                // Filter records based on service selection
+                const filteredRecords = serviceFilter === 'all' 
+                    ? records 
+                    : records.filter(record => record.service.includes(serviceFilter));
+
+                if (filteredRecords.length < 2) {
+                    throw new Error('Not enough addresses to optimize route');
+                }
+
+                // Update summary
+                displaySummary(filteredRecords);
+
+                // Initialize map and calculate route
+                const map = new google.maps.Map(document.getElementById("map"), {
+                    zoom: 12,
+                    center: { lat: 38.8817, lng: -94.8191 },
+                });
+
+                const directionsService = new google.maps.DirectionsService();
+                const directionsRenderer = new google.maps.DirectionsRenderer();
+                directionsRenderer.setMap(map);
+
+                const service = new google.maps.DistanceMatrixService();
+                const addresses = filteredRecords.map(record => record.fullAddress);
+
+                service.getDistanceMatrix({
+                    origins: addresses,
+                    destinations: addresses,
+                    travelMode: google.maps.TravelMode.DRIVING,
+                }, (response, status) => {
+                    if (status !== google.maps.DistanceMatrixStatus.OK) {
+                        throw new Error('Error calculating distance matrix');
+                    }
+
+                    const matrix = addresses.map((_, i) => 
+                        addresses.map((__, j) => response.rows[i].elements[j].distance.value)
+                    );
+
+                    const route = nearestNeighbor(matrix, filteredRecords);
+                    
+                    displayMapRoute(directionsService, directionsRenderer, route.map(r => r.fullAddress));
+                    displayRouteList(route);
+                });
+
+            } catch (error) {
+                displayError(`Processing Error: ${error.message}`);
+            }
         }
 
-        function nearestNeighbor(matrix, addresses) {
-            const n = addresses.length;
+        function displaySummary(records) {
+            const summary = document.getElementById('summary');
+            const content = document.getElementById('summaryContent');
+            
+            const totalRiders = records.length;
+            const serviceTypes = [...new Set(records.map(r => r.service))];
+            
+            content.innerHTML = `
+                <p class="mb-2"><strong>Total Riders:</strong> ${totalRiders}</p>
+                <p class="mb-2"><strong>Services:</strong> ${serviceTypes.join(', ')}</p>
+            `;
+            
+            summary.classList.remove('hidden');
+        }
+
+        function nearestNeighbor(matrix, records) {
+            const n = records.length;
             const visited = new Array(n).fill(false);
-            const route = [0]; // Start with first address
+            const route = [0];
             visited[0] = true;
 
             while (route.length < n) {
@@ -145,11 +217,11 @@
                 visited[nearest] = true;
             }
 
-            route.push(0); // Return to first address
-            return route.map(index => addresses[index]);
+            route.push(0);
+            return route.map(index => records[index]);
         }
 
-        function displayMapRoute(addresses) {
+        function displayMapRoute(directionsService, directionsRenderer, addresses) {
             const waypoints = addresses.slice(1, -1).map(address => ({
                 location: address,
                 stopover: true
@@ -157,7 +229,7 @@
 
             const request = {
                 origin: addresses[0],
-                destination: addresses[0], // Return to origin
+                destination: addresses[0],
                 waypoints: waypoints,
                 optimizeWaypoints: false,
                 travelMode: google.maps.TravelMode.DRIVING,
@@ -168,7 +240,7 @@
                     document.getElementById('map').classList.remove('hidden');
                     directionsRenderer.setDirections(result);
                 } else {
-                    alert('Directions request failed due to ' + status);
+                    displayError('Directions request failed: ' + status);
                 }
             });
         }
@@ -180,38 +252,20 @@
             resultDiv.classList.remove('hidden');
             routeList.innerHTML = '';
            
-            route.forEach((address, index) => {
+            route.forEach((record, index) => {
                 const li = document.createElement('li');
-                li.className = 'mb-2';
-                li.textContent = `${index + 1}. ${address}`;
+                li.className = 'mb-4 p-3 bg-gray-50 rounded';
+                li.innerHTML = `
+                    <div class="font-semibold">${index + 1}. ${record.name}</div>
+                    <div>${record.fullAddress}</div>
+                    <div class="text-sm text-gray-600">Phone: ${record.phone}</div>
+                    <div class="text-sm text-gray-600">Notes: ${record.notes}</div>
+                `;
                 routeList.appendChild(li);
             });
         }
 
-        // Load the Google Sheets API and Google Maps API
-        window.addEventListener('load', () => {
-            gapi.load('client:auth2', initClient);
-        });
-    </script>
-</head>
-<body class="bg-gray-100 p-8">
-    <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow">
-        <h1 class="text-2xl font-bold mb-6">Route Optimizer from Google Sheets</h1>
-
-        <div id="result" class="mt-6 hidden">
-            <h2 class="text-xl font-semibold mb-3">Optimized Route:</h2>
-            <ol id="routeList" class="list-decimal pl-6"></ol>
-        </div>
-
-        <div id="map" class="w-full h-96 mt-6 hidden"></div>
-        <p>Bro, what be happenin?</p>
-    </div>
-
-    <script
-        src ="https://maps.googleapis.com/maps/api/js?key=AIzaSyAd1XCie5W1oKAShYIGca9WvWQuRFw-LEM&libraries=geometry"
-        async
-        defer
-        id="google-maps-script">
+        window.addEventListener('load', initializeApp);
     </script>
 </body>
 </html>
