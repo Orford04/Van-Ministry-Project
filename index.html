@@ -24,6 +24,17 @@
             </select>
         </div>
 
+        <button id="resetButton" class="mb-4 px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 hidden">
+            Reset Route
+        </button>
+
+        <div id="loading" class="hidden">
+            <div class="flex items-center justify-center mb-4">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                <span class="ml-2 text-gray-600">Processing route...</span>
+            </div>
+        </div>
+
         <div id="error-messages" class="text-red-500 mb-4"></div>
 
         <div id="summary" class="mt-6 mb-6 hidden">
@@ -44,13 +55,33 @@
             GOOGLE_MAPS_API_KEY: 'AIzaSyAd1XCie5W1oKAShYIGca9WvWQuRFw-LEM'
         };
 
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
         function displayError(message) {
             console.error(message);
             const errorDiv = document.getElementById('error-messages');
             errorDiv.innerHTML += `<p class="text-red-500">${message}</p>`;
         }
 
-        function loadScript(src) {
+        function clearErrors() {
+            document.getElementById('error-messages').innerHTML = '';
+        }
+
+        function resetUI() {
+            document.getElementById('summary').classList.add('hidden');
+            document.getElementById('result').classList.add('hidden');
+            document.getElementById('map').classList.add('hidden');
+            document.getElementById('resetButton').classList.add('hidden');
+            clearErrors();
+        }
+
+        async function loadScript(src) {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 script.src = src;
@@ -60,6 +91,73 @@
                 script.onerror = reject;
                 document.head.appendChild(script);
             });
+        }
+
+        async function initializeGoogleMaps() {
+            try {
+                await loadScript(`https://maps.googleapis.com/maps/api/js?key=${APP_CONFIG.GOOGLE_MAPS_API_KEY}&libraries=geometry`);
+                return true;
+            } catch (error) {
+                displayError('Failed to load Google Maps. Please check your internet connection and API key.');
+                return false;
+            }
+        }
+
+        function chunkArray(array, size) {
+            const chunks = [];
+            for (let i = 0; i < array.length; i += size) {
+                chunks.push(array.slice(i, i + size));
+            }
+            return chunks;
+        }
+
+        async function getDistanceMatrixWithRetry(service, addresses, maxRetries = 3) {
+            const CHUNK_SIZE = 10; // Google's Distance Matrix API limit
+            const addressChunks = chunkArray(addresses, CHUNK_SIZE);
+            const matrix = Array(addresses.length).fill().map(() => Array(addresses.length).fill(0));
+            
+            for (let i = 0; i < addressChunks.length; i++) {
+                for (let j = 0; j < addressChunks.length; j++) {
+                    let retries = 0;
+                    while (retries < maxRetries) {
+                        try {
+                            const response = await new Promise((resolve, reject) => {
+                                service.getDistanceMatrix({
+                                    origins: addressChunks[i],
+                                    destinations: addressChunks[j],
+                                    travelMode: google.maps.TravelMode.DRIVING,
+                                }, (result, status) => {
+                                    if (status === google.maps.DistanceMatrixStatus.OK) {
+                                        resolve(result);
+                                    } else {
+                                        reject(new Error(`Distance Matrix failed: ${status}`));
+                                    }
+                                });
+                            });
+                            
+                            // Fill the corresponding parts of the matrix
+                            for (let k = 0; k < addressChunks[i].length; k++) {
+                                for (let l = 0; l < addressChunks[j].length; l++) {
+                                    const originalRow = i * CHUNK_SIZE + k;
+                                    const originalCol = j * CHUNK_SIZE + l;
+                                    if (originalRow < addresses.length && originalCol < addresses.length) {
+                                        matrix[originalRow][originalCol] = 
+                                            response.rows[k].elements[l].distance.value;
+                                    }
+                                }
+                            }
+                            break;
+                        } catch (error) {
+                            retries++;
+                            if (retries === maxRetries) {
+                                throw error;
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+                        }
+                    }
+                }
+            }
+            return matrix;
         }
 
         function parseCSV(file) {
@@ -108,30 +206,20 @@
             });
         }
 
-        async function initializeApp() {
-            try {
-                await loadScript(`https://maps.googleapis.com/maps/api/js?key=${APP_CONFIG.GOOGLE_MAPS_API_KEY}&libraries=geometry`);
-                
-                const csvFileInput = document.getElementById('csvFile');
-                const serviceFilter = document.getElementById('serviceFilter');
-                
-                csvFileInput.addEventListener('change', handleFileSelect);
-                serviceFilter.addEventListener('change', handleFileSelect);
-            } catch (error) {
-                displayError(`Initialization Error: ${error.message}`);
-            }
-        }
-
         async function handleFileSelect(event) {
+            resetUI();
+            showLoading();
+            
             const file = document.getElementById('csvFile').files[0];
             const serviceFilter = document.getElementById('serviceFilter').value;
             
-            if (!file) return;
+            if (!file) {
+                hideLoading();
+                return;
+            }
 
             try {
                 const records = await parseCSV(file);
-                
-                // Filter records based on service selection
                 const filteredRecords = serviceFilter === 'all' 
                     ? records 
                     : records.filter(record => record.service.includes(serviceFilter));
@@ -140,43 +228,33 @@
                     throw new Error('Not enough addresses to optimize route');
                 }
 
-                // Update summary
-                displaySummary(filteredRecords);
-
-                // Initialize map and calculate route
+                // Initialize map
                 const map = new google.maps.Map(document.getElementById("map"), {
                     zoom: 12,
-                    center: { lat: 38.8817, lng: -94.8191 },
+                    center: { lat: 38.8817, lng: -94.8191 }, // Olathe, KS
                 });
 
                 const directionsService = new google.maps.DirectionsService();
                 const directionsRenderer = new google.maps.DirectionsRenderer();
                 directionsRenderer.setMap(map);
 
-                const service = new google.maps.DistanceMatrixService();
+                // Calculate route
                 const addresses = filteredRecords.map(record => record.fullAddress);
-
-                service.getDistanceMatrix({
-                    origins: addresses,
-                    destinations: addresses,
-                    travelMode: google.maps.TravelMode.DRIVING,
-                }, (response, status) => {
-                    if (status !== google.maps.DistanceMatrixStatus.OK) {
-                        throw new Error('Error calculating distance matrix');
-                    }
-
-                    const matrix = addresses.map((_, i) => 
-                        addresses.map((__, j) => response.rows[i].elements[j].distance.value)
-                    );
-
-                    const route = nearestNeighbor(matrix, filteredRecords);
-                    
-                    displayMapRoute(directionsService, directionsRenderer, route.map(r => r.fullAddress));
-                    displayRouteList(route);
-                });
-
+                const service = new google.maps.DistanceMatrixService();
+                
+                const matrix = await getDistanceMatrixWithRetry(service, addresses);
+                const route = nearestNeighbor(matrix, filteredRecords);
+                
+                displaySummary(filteredRecords);
+                await displayMapRoute(directionsService, directionsRenderer, route.map(r => r.fullAddress));
+                displayRouteList(route);
+                
+                document.getElementById('resetButton').classList.remove('hidden');
+                
             } catch (error) {
                 displayError(`Processing Error: ${error.message}`);
+            } finally {
+                hideLoading();
             }
         }
 
@@ -221,27 +299,32 @@
             return route.map(index => records[index]);
         }
 
-        function displayMapRoute(directionsService, directionsRenderer, addresses) {
-            const waypoints = addresses.slice(1, -1).map(address => ({
-                location: address,
-                stopover: true
-            }));
+        async function displayMapRoute(directionsService, directionsRenderer, addresses) {
+            return new Promise((resolve, reject) => {
+                const waypoints = addresses.slice(1, -1).map(address => ({
+                    location: address,
+                    stopover: true
+                }));
 
-            const request = {
-                origin: addresses[0],
-                destination: addresses[0],
-                waypoints: waypoints,
-                optimizeWaypoints: false,
-                travelMode: google.maps.TravelMode.DRIVING,
-            };
+                const request = {
+                    origin: addresses[0],
+                    destination: addresses[0],
+                    waypoints: waypoints,
+                    optimizeWaypoints: false,
+                    travelMode: google.maps.TravelMode.DRIVING,
+                };
 
-            directionsService.route(request, function(result, status) {
-                if (status === 'OK') {
-                    document.getElementById('map').classList.remove('hidden');
-                    directionsRenderer.setDirections(result);
-                } else {
-                    displayError('Directions request failed: ' + status);
-                }
+                directionsService.route(request, function(result, status) {
+                    if (status === 'OK') {
+                        document.getElementById('map').classList.remove('hidden');
+                        directionsRenderer.setDirections(result);
+                        resolve();
+                    } else {
+                        const error = new Error('Directions request failed: ' + status);
+                        displayError(error.message);
+                        reject(error);
+                    }
+                });
             });
         }
 
@@ -265,7 +348,27 @@
             });
         }
 
-        window.addEventListener('load', initializeApp);
+        async function initialize() {
+            try {
+                const mapsLoaded = await initializeGoogleMaps();
+                if (!mapsLoaded) return;
+                
+                const csvFileInput = document.getElementById('csvFile');
+                const serviceFilter = document.getElementById('serviceFilter');
+                const resetButton = document.getElementById('resetButton');
+                
+                csvFileInput.addEventListener('change', handleFileSelect);
+                serviceFilter.addEventListener('change', handleFileSelect);
+                resetButton.addEventListener('click', () => {
+                    csvFileInput.value = '';
+                    resetUI();
+                });
+            } catch (error) {
+                displayError(`Initialization Error: ${error.message}`);
+            }
+        }
+
+        window.addEventListener('load', initialize);
     </script>
 </body>
 </html>
