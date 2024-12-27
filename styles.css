@@ -1,0 +1,8 @@
+body {
+    background-image: url('../Van-Ministry-Project/map.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    min-height: 100vh;
+}
