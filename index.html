@@ -9,7 +9,9 @@
 </head>
 <body class="p-8">
     <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow mt-8">
-        <h1 class="text-2xl font-bold mb-6">Van Ministry Route Optimizer</h1>
+        <h1 class="text-4xl font-bold mb-6 text-center">Van Ministry Route Optimizer</h1>
+
+        <h2 class="sub-header">Setup</h2>
 
         <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 mb-2">Upload Van Ministry Form CSV</label>
@@ -23,6 +25,19 @@
                 <option value="Sunday">Sunday Service</option>
                 <option value="Wednesday">Wednesday Service</option>
             </select>
+        </div>
+
+        <div class="mb-6">
+            <h3 class="text-lg font-medium mb-2">Add New Stop</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="text" id="newName" placeholder="Name" class="rounded-md border-gray-300 shadow-sm">
+                <input type="text" id="newPhone" placeholder="Phone" class="rounded-md border-gray-300 shadow-sm">
+                <input type="text" id="newAddress" placeholder="Full Address" class="rounded-md border-gray-300 shadow-sm md:col-span-2">
+                <input type="text" id="newNotes" placeholder="Notes" class="rounded-md border-gray-300 shadow-sm md:col-span-2">
+                <button id="addStop" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                    Add Stop
+                </button>
+            </div>
         </div>
 
         <button id="resetButton" class="mb-4 px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 hidden">
@@ -39,12 +54,12 @@
         <div id="error-messages" class="text-red-500 mb-4"></div>
 
         <div id="summary" class="mt-6 mb-6 hidden">
-            <h2 class="text-xl font-semibold mb-3">Route Summary</h2>
+            <h2 class="sub-header">Route Summary</h2>
             <div id="summaryContent" class="bg-gray-50 p-4 rounded"></div>
         </div>
 
         <div id="result" class="mt-6 hidden">
-            <h2 class="text-xl font-semibold mb-3">Optimized Route:</h2>
+            <h2 class="sub-header">Optimized Route</h2>
             <ol id="routeList" class="list-decimal pl-6"></ol>
         </div>
 

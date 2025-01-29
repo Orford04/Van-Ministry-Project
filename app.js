@@ -238,6 +238,10 @@ function displayRouteList(route) {
             <div>${record.fullAddress}</div>
             <div class="text-sm text-gray-600">Phone: ${record.phone}</div>
             <div class="text-sm text-gray-600">Notes: ${record.notes}</div>
+            <button class="delete-stop absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm" 
+                    data-index="${index}">
+                Delete
+            </button>
         `;
         routeList.appendChild(li);
     });
@@ -264,6 +268,8 @@ async function handleFileSelect(event) {
         if (filteredRecords.length < 2) {
             throw new Error('Not enough addresses to optimize route');
         }
+
+        currentRecords = filteredRecords; // Store the records globally
 
         const map = new google.maps.Map(document.getElementById("map"), {
             zoom: 12,
@@ -301,6 +307,7 @@ async function initialize() {
         const csvFileInput = document.getElementById('csvFile');
         const serviceFilter = document.getElementById('serviceFilter');
         const resetButton = document.getElementById('resetButton');
+        const addStopButton = document.getElementById('addStop');
         
         csvFileInput.addEventListener('change', handleFileSelect);
         serviceFilter.addEventListener('change', handleFileSelect);
@@ -308,8 +315,84 @@ async function initialize() {
             csvFileInput.value = '';
             resetUI();
         });
+        addStopButton.addEventListener('click', addNewStop);
+
+        // Add event delegation for delete buttons
+        document.getElementById('routeList').addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-stop')) {
+                const index = parseInt(e.target.dataset.index);
+                deleteStop(index);
+            }
+        });
     } catch (error) {
         displayError(`Initialization Error: ${error.message}`);
+    }
+}
+
+let currentRecords = []; // Store the current records globally
+
+function addNewStop() {
+    const name = document.getElementById('newName').value.trim();
+    const phone = document.getElementById('newPhone').value.trim();
+    const address = document.getElementById('newAddress').value.trim();
+    const notes = document.getElementById('newNotes').value.trim();
+    
+    if (!name || !address) {
+        displayError('Name and address are required');
+        return;
+    }
+
+    const newStop = {
+        name: name,
+        fullAddress: address,
+        phone: phone,
+        notes: notes || 'None',
+        service: document.getElementById('serviceFilter').value
+    };
+
+    currentRecords.push(newStop);
+    reoptimizeRoute();
+    
+    // Clear input fields
+    document.getElementById('newName').value = '';
+    document.getElementById('newPhone').value = '';
+    document.getElementById('newAddress').value = '';
+    document.getElementById('newNotes').value = '';
+}
+
+function deleteStop(index) {
+    currentRecords.splice(index, 1);
+    if (currentRecords.length < 2) {
+        displayError('Need at least 2 stops for route optimization');
+        return;
+    }
+    reoptimizeRoute();
+}
+
+async function reoptimizeRoute() {
+    showLoading();
+    try {
+        const addresses = currentRecords.map(record => record.fullAddress);
+        const service = new google.maps.DistanceMatrixService();
+        
+        const matrix = await getDistanceMatrixWithRetry(service, addresses);
+        const route = nearestNeighbor(matrix, currentRecords);
+        
+        const directionsService = new google.maps.DirectionsService();
+        const directionsRenderer = new google.maps.DirectionsRenderer();
+        const map = new google.maps.Map(document.getElementById("map"), {
+            zoom: 12,
+            center: { lat: 38.8817, lng: -94.8191 },
+        });
+        directionsRenderer.setMap(map);
+        
+        displaySummary(currentRecords);
+        await displayMapRoute(directionsService, directionsRenderer, route.map(r => r.fullAddress));
+        displayRouteList(route);
+    } catch (error) {
+        displayError(`Reoptimization Error: ${error.message}`);
+    } finally {
+        hideLoading();
     }
 }
 

@@ -1,8 +1,16 @@
 body {
-    background-image: url('../Van-Ministry-Project/map.jpg');
+    background-image: url('../Van-Ministry-Project/Images/pexels-tomfisk-1687641.jpg');
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
     min-height: 100vh;
+}
+
+.sub-header {
+    color: #666666;
+    font-size: 24px;
+    text-align: center;
+    margin-bottom: 2rem;
+    font-weight: 300;   /* this makes it slightly thinner than normal text */
 }
