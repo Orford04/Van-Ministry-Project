@@ -228,23 +228,49 @@ function displayRouteList(route) {
     const routeList = document.getElementById('routeList');
    
     resultDiv.classList.remove('hidden');
+    // Add the white background and padding to the result div
+    resultDiv.className = 'mt-6 bg-white p-6 rounded-lg shadow';
+    
     routeList.innerHTML = '';
    
     route.forEach((record, index) => {
         const li = document.createElement('li');
-        li.className = 'mb-4 p-3 bg-gray-50 rounded';
+        // Updated styling to match the original design
+        li.className = 'mb-4 p-4 bg-gray-50 rounded-lg shadow-sm relative border border-gray-200';
         li.innerHTML = `
-            <div class="font-semibold">${index + 1}. ${record.name}</div>
-            <div>${record.fullAddress}</div>
-            <div class="text-sm text-gray-600">Phone: ${record.phone}</div>
-            <div class="text-sm text-gray-600">Notes: ${record.notes}</div>
-            <button class="delete-stop absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm" 
-                    data-index="${index}">
-                Delete
-            </button>
+            <div class="font-semibold text-gray-800">${index + 1}. ${record.name}</div>
+            <div class="text-gray-700 mt-1">${record.fullAddress}</div>
+            <div class="text-sm text-gray-600 mt-1">Phone: ${record.phone}</div>
+            <div class="text-sm text-gray-600 mt-1">Notes: ${record.notes}</div>
+            ${index !== 0 ? `
+                <button class="delete-stop absolute top-3 right-3 px-3 py-1.5 bg-red-500 text-white rounded-md hover:bg-red-600 text-sm transition-colors duration-200" 
+                        data-index="${index}">
+                    Delete
+                </button>
+            ` : ''}
         `;
         routeList.appendChild(li);
     });
+}
+
+// Also update the summary display to maintain consistent styling
+function displaySummary(records) {
+    const summary = document.getElementById('summary');
+    const content = document.getElementById('summaryContent');
+    
+    summary.classList.remove('hidden');
+    // Add white background and proper styling to the summary section
+    summary.className = 'mt-6 bg-white p-6 rounded-lg shadow';
+    
+    const totalRiders = records.length;
+    const serviceTypes = [...new Set(records.map(r => r.service))];
+    
+    content.innerHTML = `
+        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <p class="mb-2 text-gray-800"><strong>Total Riders:</strong> ${totalRiders}</p>
+            <p class="text-gray-800"><strong>Services:</strong> ${serviceTypes.join(', ')}</p>
+        </div>
+    `;
 }
 
 async function handleFileSelect(event) {
@@ -299,36 +325,6 @@ async function handleFileSelect(event) {
     }
 }
 
-async function initialize() {
-    try {
-        const mapsLoaded = await initializeGoogleMaps();
-        if (!mapsLoaded) return;
-        
-        const csvFileInput = document.getElementById('csvFile');
-        const serviceFilter = document.getElementById('serviceFilter');
-        const resetButton = document.getElementById('resetButton');
-        const addStopButton = document.getElementById('addStop');
-        
-        csvFileInput.addEventListener('change', handleFileSelect);
-        serviceFilter.addEventListener('change', handleFileSelect);
-        resetButton.addEventListener('click', () => {
-            csvFileInput.value = '';
-            resetUI();
-        });
-        addStopButton.addEventListener('click', addNewStop);
-
-        // Add event delegation for delete buttons
-        document.getElementById('routeList').addEventListener('click', (e) => {
-            if (e.target.classList.contains('delete-stop')) {
-                const index = parseInt(e.target.dataset.index);
-                deleteStop(index);
-            }
-        });
-    } catch (error) {
-        displayError(`Initialization Error: ${error.message}`);
-    }
-}
-
 let currentRecords = []; // Store the current records globally
 
 function addNewStop() {
@@ -360,39 +356,91 @@ function addNewStop() {
     document.getElementById('newNotes').value = '';
 }
 
-function deleteStop(index) {
-    currentRecords.splice(index, 1);
+async function reoptimizeRoute() {
     if (currentRecords.length < 2) {
         displayError('Need at least 2 stops for route optimization');
         return;
     }
-    reoptimizeRoute();
-}
 
-async function reoptimizeRoute() {
     showLoading();
+    clearErrors();
+    
     try {
+        const map = new google.maps.Map(document.getElementById("map"), {
+            zoom: 12,
+            center: { lat: 38.8817, lng: -94.8191 },
+        });
+
+        const directionsService = new google.maps.DirectionsService();
+        const directionsRenderer = new google.maps.DirectionsRenderer();
+        directionsRenderer.setMap(map);
+
         const addresses = currentRecords.map(record => record.fullAddress);
         const service = new google.maps.DistanceMatrixService();
         
         const matrix = await getDistanceMatrixWithRetry(service, addresses);
         const route = nearestNeighbor(matrix, currentRecords);
         
-        const directionsService = new google.maps.DirectionsService();
-        const directionsRenderer = new google.maps.DirectionsRenderer();
-        const map = new google.maps.Map(document.getElementById("map"), {
-            zoom: 12,
-            center: { lat: 38.8817, lng: -94.8191 },
-        });
-        directionsRenderer.setMap(map);
-        
         displaySummary(currentRecords);
         await displayMapRoute(directionsService, directionsRenderer, route.map(r => r.fullAddress));
         displayRouteList(route);
+        
+        document.getElementById('resetButton').classList.remove('hidden');
     } catch (error) {
         displayError(`Reoptimization Error: ${error.message}`);
     } finally {
         hideLoading();
+    }
+}
+
+function deleteStop(index) {
+    // Prevent deletion of the first stop (starting point)
+    if (index === 0) {
+        displayError('Cannot delete the starting point');
+        return;
+    }
+
+    currentRecords = currentRecords.filter((_, i) => i !== index);
+    
+    if (currentRecords.length < 2) {
+        displayError('Need at least 2 stops for route optimization');
+        resetUI();
+        return;
+    }
+
+    reoptimizeRoute();
+}
+
+async function initialize() {
+    try {
+        const mapsLoaded = await initializeGoogleMaps();
+        if (!mapsLoaded) return;
+        
+        const csvFileInput = document.getElementById('csvFile');
+        const serviceFilter = document.getElementById('serviceFilter');
+        const resetButton = document.getElementById('resetButton');
+        const addStopButton = document.getElementById('addStop');
+        
+        csvFileInput.addEventListener('change', handleFileSelect);
+        serviceFilter.addEventListener('change', handleFileSelect);
+        resetButton.addEventListener('click', () => {
+            csvFileInput.value = '';
+            resetUI();
+            currentRecords = [];
+        });
+        addStopButton.addEventListener('click', addNewStop);
+
+        // Add event delegation for delete buttons
+        document.getElementById('routeList').addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-stop')) {
+                const index = parseInt(e.target.dataset.index);
+                if (!isNaN(index)) {
+                    deleteStop(index);
+                }
+            }
+        });
+    } catch (error) {
+        displayError(`Initialization Error: ${error.message}`);
     }
 }
 
