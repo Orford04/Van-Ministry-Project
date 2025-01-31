@@ -223,19 +223,49 @@ async function displayMapRoute(directionsService, directionsRenderer, addresses)
     });
 }
 
+// Add this function to create the directions URL
+function createGoogleMapsDirectionsUrl(route) {
+    // Google Maps has a limit on the number of waypoints in the URL
+    // We'll include all stops but be aware of potential limitations
+    const origin = encodeURIComponent(route[0].fullAddress);
+    const destination = encodeURIComponent(route[0].fullAddress); // Return to start
+    
+    // Convert intermediate stops to waypoints
+    const waypoints = route.slice(1, -1)
+        .map(stop => encodeURIComponent(stop.fullAddress))
+        .join('|');
+    
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}&travelmode=driving`;
+}
+
+// Update the displayRouteList function to include the directions button
 function displayRouteList(route) {
     const resultDiv = document.getElementById('result');
     const routeList = document.getElementById('routeList');
    
     resultDiv.classList.remove('hidden');
-    // Add the white background and padding to the result div
     resultDiv.className = 'mt-6 bg-white p-6 rounded-lg shadow';
+    
+    // Add the Get Directions button at the top
+    const directionsButton = document.createElement('div');
+    directionsButton.className = 'mb-4 flex justify-end';
+    directionsButton.innerHTML = `
+        <button id="getDirections" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors duration-200 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM2.5 10a7.5 7.5 0 1 1 15 0 7.5 7.5 0 0 1-15 0z" clip-rule="evenodd"/>
+                <path fill-rule="evenodd" d="M10 2.5a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-1 0V3a.5.5 0 0 1 .5-.5z" clip-rule="evenodd"/>
+                <path fill-rule="evenodd" d="M9.5 10a.5.5 0 0 1 .5-.5h3.5a.5.5 0 0 1 0 1H10a.5.5 0 0 1-.5-.5z" clip-rule="evenodd"/>
+            </svg>
+            Get Directions in Google Maps
+        </button>
+    `;
+    
+    resultDiv.insertBefore(directionsButton, routeList);
     
     routeList.innerHTML = '';
    
     route.forEach((record, index) => {
         const li = document.createElement('li');
-        // Updated styling to match the original design
         li.className = 'mb-4 p-4 bg-gray-50 rounded-lg shadow-sm relative border border-gray-200';
         li.innerHTML = `
             <div class="font-semibold text-gray-800">${index + 1}. ${record.name}</div>
@@ -250,6 +280,12 @@ function displayRouteList(route) {
             ` : ''}
         `;
         routeList.appendChild(li);
+    });
+
+    // Add click handler for the directions button
+    document.getElementById('getDirections').addEventListener('click', () => {
+        const directionsUrl = createGoogleMapsDirectionsUrl(route);
+        window.open(directionsUrl, '_blank');
     });
 }
 
@@ -430,8 +466,8 @@ async function initialize() {
         });
         addStopButton.addEventListener('click', addNewStop);
 
-        // Add event delegation for delete buttons
-        document.getElementById('routeList').addEventListener('click', (e) => {
+        // Event delegation for all buttons in the route list
+        document.getElementById('result').addEventListener('click', (e) => {
             if (e.target.classList.contains('delete-stop')) {
                 const index = parseInt(e.target.dataset.index);
                 if (!isNaN(index)) {
