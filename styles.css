@@ -14,3 +14,8 @@ body {
     margin-bottom: 2rem;
     font-weight: 300;   /* this makes it slightly thinner than normal text */
 }
+
+.dragging {
+    cursor: move;
+    position: relative;
+}

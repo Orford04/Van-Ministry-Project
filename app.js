@@ -265,103 +265,36 @@ function createGoogleMapsDirectionsUrl(route) {
 }
 
 function enableDragAndDrop(routeList) {
-    let draggedItem = null;
-    let draggedIndex = null;
-
-    function handleDragStart(e) {
-        const item = e.target.closest('.route-item');
-        if (!item) return;
-        
-        draggedItem = item;
-        draggedIndex = Array.from(routeList.children).indexOf(draggedItem);
-        
-        // Don't allow dragging the first or last item (start/end points)
-        if (draggedIndex === 0 || draggedIndex === routeList.children.length - 1) {
-            e.preventDefault();
-            return;
-        }
-        
-        e.dataTransfer.effectAllowed = 'move';
-        draggedItem.classList.add('bg-blue-50');
-    }
-
-    function handleDragOver(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-    }
-
-    function handleDragEnter(e) {
-        const item = e.target.closest('.route-item');
-        if (item && item !== draggedItem) {
-            // Don't highlight start/end points
-            const index = Array.from(routeList.children).indexOf(item);
-            if (index !== 0 && index !== routeList.children.length - 1) {
-                item.classList.add('border-blue-500');
+    const sortable = new Sortable(routeList, {
+        animation: 150,
+        handle: '.route-item',
+        filter: '.filtered', // Prevents dragging first/last items
+        onStart: function(evt) {
+            const index = evt.oldIndex;
+            if (index === 0 || index === currentRecords.length - 1) {
+                evt.preventDefault();
+                return false;
             }
-        }
-    }
-
-    function handleDragLeave(e) {
-        const item = e.target.closest('.route-item');
-        if (item) {
-            item.classList.remove('border-blue-500');
-        }
-    }
-
-    async function handleDrop(e) {
-        e.preventDefault();
-        const dropTarget = e.target.closest('.route-item');
-        if (!dropTarget || dropTarget === draggedItem) return;
-
-        try {
-            // Remove highlighting
-            draggedItem.classList.remove('bg-blue-50');
-            dropTarget.classList.remove('border-blue-500');
-
-            // Get the drop target's index
-            const dropIndex = Array.from(routeList.children).indexOf(dropTarget);
-
-            // Prevent dropping to position 0 or last position
-            if (dropIndex === 0 || dropIndex === routeList.children.length - 1 || 
-                draggedIndex === 0 || draggedIndex === routeList.children.length - 1) {
+        },
+        onEnd: async function(evt) {
+            const { oldIndex, newIndex } = evt;
+            
+            // Prevent moving to start/end positions
+            if (newIndex === 0 || newIndex === currentRecords.length - 1) {
                 displayError("Cannot reorder the start or end points");
+                updateRouteDisplay(currentRecords); // Reset display
                 return;
             }
 
-            // Create a new array with the reordered items
+            // Update records array
             const newRecords = [...currentRecords];
-            const [movedRecord] = newRecords.splice(draggedIndex, 1);
-            newRecords.splice(dropIndex, 0, movedRecord);
-            
-            // Update the currentRecords with the new order
+            const [movedRecord] = newRecords.splice(oldIndex, 1);
+            newRecords.splice(newIndex, 0, movedRecord);
             currentRecords = newRecords;
-
-            // Update the display with the new route
-            await updateRouteDisplay(currentRecords);
-        } catch (error) {
-            displayError(`Failed to update route: ${error.message}`);
-            // Revert to the previous state if there's an error
+            
             await updateRouteDisplay(currentRecords);
         }
-    }
-
-    function handleDragEnd(e) {
-        if (draggedItem) {
-            draggedItem.classList.remove('bg-blue-50');
-        }
-        // Remove highlighting from all items
-        Array.from(routeList.children).forEach(item => {
-            item.classList.remove('border-blue-500');
-        });
-    }
-
-    // Add all event listeners
-    routeList.addEventListener('dragstart', handleDragStart);
-    routeList.addEventListener('dragover', handleDragOver);
-    routeList.addEventListener('dragenter', handleDragEnter);
-    routeList.addEventListener('dragleave', handleDragLeave);
-    routeList.addEventListener('drop', handleDrop);
-    routeList.addEventListener('dragend', handleDragEnd);
+    });
 }
 
 // New function to update the display without reoptimizing
@@ -416,17 +349,15 @@ async function updateRouteDisplay(route) {
 function displayRouteList(route) {
     const resultDiv = document.getElementById('result');
     const routeList = document.getElementById('routeList');
-   
+    
     resultDiv.classList.remove('hidden');
     resultDiv.className = 'mt-6 bg-white p-6 rounded-lg shadow';
     
-    // Remove any existing directions button before adding a new one
     const existingButton = document.getElementById('directionsButtonContainer');
     if (existingButton) {
         existingButton.remove();
     }
     
-    // Add the Get Directions button at the top
     const directionsButton = document.createElement('div');
     directionsButton.id = 'directionsButtonContainer';
     directionsButton.className = 'mb-4 flex justify-end';
@@ -443,6 +374,7 @@ function displayRouteList(route) {
     
     resultDiv.insertBefore(directionsButton, routeList);
     routeList.innerHTML = '';
+    currentRecords = route;
    
     route.forEach((record, index) => {
         const li = document.createElement('li');
@@ -450,12 +382,11 @@ function displayRouteList(route) {
         const isEndPoint = index === route.length - 1;
         
         li.className = `route-item mb-4 p-4 rounded-lg shadow-sm relative border ${
-            isStartPoint ? 'bg-green-50 border-green-200' : 
-            isEndPoint ? 'bg-red-50 border-red-200' : 
-            'bg-gray-50 border-gray-200 cursor-move'
+            isStartPoint ? 'bg-green-50 border-green-200 filtered' : 
+            isEndPoint ? 'bg-red-50 border-red-200 filtered' : 
+            'bg-gray-50 border-gray-200'
         }`;
         
-        // Only make middle points draggable
         li.draggable = !isStartPoint && !isEndPoint;
         
         const dragHandle = (!isStartPoint && !isEndPoint) ? `
@@ -488,7 +419,6 @@ function displayRouteList(route) {
 
     enableDragAndDrop(routeList);
 
-    // Add click handler for the directions button
     document.getElementById('getDirections').addEventListener('click', () => {
         const directionsUrl = createGoogleMapsDirectionsUrl(currentRecords);
         window.open(directionsUrl, '_blank');
