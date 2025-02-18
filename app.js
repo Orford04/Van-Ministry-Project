@@ -149,6 +149,7 @@ function parseCSV(file) {
             const lastNameIndex = headers.indexOf('Last Name');
             const phoneIndex = headers.indexOf('Mobile Phone Number');
             const notesIndex = headers.indexOf('Please list any physical needs that would affect transportation. If you don\'t have any, type NONE.');
+            const riderCountIndex = headers.indexOf('How many people need a ride from your home?');
 
             if (streetIndex === -1 || cityIndex === -1 || stateIndex === -1 || zipIndex === -1) {
                 throw new Error('Required address columns not found in CSV');
@@ -167,6 +168,7 @@ function parseCSV(file) {
                         service: values[serviceIndex],
                         phone: values[phoneIndex],
                         notes: values[notesIndex] || 'None',
+                        riderCount: values[riderCountIndex] ? parseInt(values[riderCountIndex]) : 1,
                         fullAddress: `${values[streetIndex]}, ${values[cityIndex]}, ${values[stateIndex]} ${values[zipIndex]}`
                     };
                 })
@@ -397,12 +399,15 @@ function displayRouteList(route) {
 
         const pointLabel = isStartPoint ? '(Start Point)' : 
                          isEndPoint ? '(End Point)' : '';
+                         
+        const riderCount = record.riderCount || 1; // Fallback to 1 if not specified
+        const riderText = riderCount === 1 ? 'rider' : 'riders';
 
         li.innerHTML = `
             ${dragHandle}
             <div class="font-semibold text-gray-800 ml-6">
-                ${index + 1}. ${record.name} 
-                <span class="text-sm font-normal text-gray-600">${pointLabel}</span>
+                ${record.name} 
+                <span class="text-sm font-normal text-gray-600">- ${riderCount} ${riderText} ${pointLabel}</span>
             </div>
             <div class="text-gray-700 mt-1 ml-6">${record.fullAddress}</div>
             <div class="text-sm text-gray-600 mt-1 ml-6">Phone: ${record.phone}</div>
@@ -502,19 +507,29 @@ let currentRecords = []; // Store the current records globally
 function addNewStop() {
     const name = document.getElementById('newName').value.trim();
     const phone = document.getElementById('newPhone').value.trim();
-    const address = document.getElementById('newAddress').value.trim();
+    const street = document.getElementById('newStreet').value.trim();
+    const city = document.getElementById('newCity').value.trim();
+    const state = document.getElementById('newState').value.trim();
+    const zip = document.getElementById('newZip').value.trim();
     const notes = document.getElementById('newNotes').value.trim();
     
-    if (!name || !address) {
-        displayError('Name and address are required');
+    if (!name || !street || !city || !state || !zip) {
+        displayError('Name, street address, city, state, and zip code are required');
         return;
     }
 
+    const fullAddress = `${street}, ${city}, ${state} ${zip}`;
+    
     const newStop = {
         name: name,
-        fullAddress: address,
+        fullAddress: fullAddress,
+        street: street,
+        city: city,
+        state: state,
+        zip: zip,
         phone: phone,
         notes: notes || 'None',
+        riderCount: 1, // Default to 1 rider
         service: document.getElementById('serviceFilter').value
     };
 
@@ -524,7 +539,10 @@ function addNewStop() {
     // Clear input fields
     document.getElementById('newName').value = '';
     document.getElementById('newPhone').value = '';
-    document.getElementById('newAddress').value = '';
+    document.getElementById('newStreet').value = '';
+    document.getElementById('newCity').value = '';
+    document.getElementById('newState').value = '';
+    document.getElementById('newZip').value = '';
     document.getElementById('newNotes').value = '';
 }
 
@@ -583,6 +601,15 @@ async function initialize() {
         const serviceFilter = document.getElementById('serviceFilter');
         const resetButton = document.getElementById('resetButton');
         const addStopButton = document.getElementById('addStop');
+        // Add New Stop toggle functionality
+        const addStopToggle = document.getElementById('addStopToggle');
+        const addStopForm = document.getElementById('addStopForm');
+        const toggleIcon = document.getElementById('toggleIcon');
+        
+        addStopToggle.addEventListener('click', () => {
+            addStopForm.classList.toggle('hidden');
+            toggleIcon.classList.toggle('rotate-180');
+        });
         
         csvFileInput.addEventListener('change', handleFileSelect);
         serviceFilter.addEventListener('change', handleFileSelect);

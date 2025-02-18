@@ -19,3 +19,11 @@ body {
     cursor: move;
     position: relative;
 }
+
+.rotate-180 {
+    transform: rotate(180deg);
+}
+
+.transition-transform {
+    transition: transform 0.2s ease-in-out;
+}
