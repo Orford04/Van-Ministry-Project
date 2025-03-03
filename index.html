@@ -9,6 +9,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 </head>
 <body class="p-8">
+    <button id="helpButton" class="fixed top-4 right-4 bg-blue-500 text-white rounded-full p-2 shadow-lg hover:bg-blue-600 focus:outline-none">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+    </button>
+    
     <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow mt-8">
         <h1 class="text-4xl font-bold mb-6 text-center">Van Ministry Route Optimizer</h1>
 
@@ -43,6 +49,10 @@
                     <input type="text" id="newCity" placeholder="City" class="rounded-md border-gray-300 shadow-sm">
                     <input type="text" id="newState" placeholder="State" class="rounded-md border-gray-300 shadow-sm">
                     <input type="text" id="newZip" placeholder="Zip Code" class="rounded-md border-gray-300 shadow-sm">
+                    <select id="newRole" class="rounded-md border-gray-300 shadow-sm">
+                        <option value="rider">Rider</option>
+                        <option value="driver">Driver/Assistant</option>
+                    </select>
                     <input type="text" id="newNotes" placeholder="Notes" class="rounded-md border-gray-300 shadow-sm md:col-span-2">
                     <button id="addStop" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
                         Add Stop
@@ -75,6 +85,47 @@
         </div>
 
         <div id="map" class="w-full h-96 mt-6 hidden rounded-lg shadow"></div>
+    </div>
+
+    <div id="helpModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">How to Use the Van Ministry Route Optimizer</h2>
+                <button id="closeHelpModal" class="text-gray-500 hover:text-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="prose">
+                <h3>Getting Started</h3>
+                <p>This tool helps you optimize van ministry routes for efficient pick-up and drop-off of riders.</p>
+                
+                <h3>Step 1: Upload Your Data</h3>
+                <p>Upload a CSV file containing your van ministry information using the file upload button.</p>
+                
+                <h3>Step 2: Filter Services</h3>
+                <p>Use the Service Time Filter dropdown to show routes for specific service days.</p>
+                
+                <h3>Step 3: Review and Adjust</h3>
+                <p>The system will automatically calculate the most efficient route. You can:</p>
+                <ul>
+                    <li>View the optimized route on the map</li>
+                    <li>Manually reorder stops by dragging them in the list</li>
+                    <li>Add new stops if needed</li>
+                </ul>
+                
+                <h3>Step 4: Use Your Route</h3>
+                <p>The final route includes addresses, contact information, and estimated driving times between stops.</p>
+                
+                <h3>Tips</h3>
+                <ul>
+                    <li>The first stop is always your starting point (church)</li>
+                    <li>Drivers and assistants are highlighted in the route</li>
+                    <li>Use the notes field for special instructions</li>
+                </ul>
+            </div>
+        </div>
     </div>
 
     <script src="config.js"></script>

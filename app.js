@@ -132,53 +132,328 @@ async function getDistanceMatrixWithRetry(service, addresses, maxRetries = 3) {
     return matrix;
 }
 
+// Help modal functionality
+document.getElementById('helpButton').addEventListener('click', function() {
+    document.getElementById('helpModal').classList.remove('hidden');
+    document.body.style.overflow = 'hidden'; // Prevent scrolling behind modal
+});
+
+document.getElementById('closeHelpModal').addEventListener('click', function() {
+    document.getElementById('helpModal').classList.add('hidden');
+    document.body.style.overflow = 'auto'; // Restore scrolling
+});
+
+// Close modal if clicking outside the content
+document.getElementById('helpModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        this.classList.add('hidden');
+        document.body.style.overflow = 'auto';
+    }
+});
+
 function parseCSV(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (event) => {
-            const csv = event.target.result;
-            const lines = csv.split('\n');
-            const headers = lines[0].split(',');
-            
-            const streetIndex = headers.indexOf('Home Address Street');
-            const cityIndex = headers.indexOf('Home Address City');
-            const stateIndex = headers.indexOf('Home Address State');
-            const zipIndex = headers.indexOf('Home Address Zip');
-            const serviceIndex = headers.indexOf('Which service do you need a ride to?');
-            const nameIndex = headers.indexOf('First Name');
-            const lastNameIndex = headers.indexOf('Last Name');
-            const phoneIndex = headers.indexOf('Mobile Phone Number');
-            const notesIndex = headers.indexOf('Please list any physical needs that would affect transportation. If you don\'t have any, type NONE.');
-            const riderCountIndex = headers.indexOf('How many people need a ride from your home?');
+            try {
+                const csv = event.target.result;
+                const lines = csv.split('\n');
+                const headers = lines[0].split(',').map(h => h.trim());
 
-            if (streetIndex === -1 || cityIndex === -1 || stateIndex === -1 || zipIndex === -1) {
-                throw new Error('Required address columns not found in CSV');
+                // Log the first few lines to see the exact format
+                console.log("CSV Headers:", lines[0]);
+                console.log("First record:", lines[1]);
+                
+                // Map exact column names from the CSV
+                const columnIndices = {
+                    firstName: headers.indexOf('First Name'),
+                    lastName: headers.indexOf('Last Name'),
+                    street: headers.indexOf('Home Address Street'),
+                    city: headers.indexOf('Home Address City'),
+                    state: headers.indexOf('Home Address State'),
+                    zip: headers.indexOf('Home Address Zip'),
+                    service: headers.indexOf('Which service do you need a ride to?'),
+                    mobilePhone: headers.indexOf('Mobile Phone Number'),
+                    homePhone: headers.indexOf('Home Phone Number'),
+                    workPhone: headers.indexOf('Work Phone Number'),
+                    notes: headers.indexOf('Please list any physical needs that would affect transportation. If you don\'t have any, type NONE.'),
+                    medicalNotes: headers.indexOf('Medical Notes'),
+                    selection: headers.indexOf('Selection')
+                };
+
+                // Verify required columns exist
+                const requiredColumns = ['street', 'city', 'state', 'zip', 'selection'];
+                const missingColumns = requiredColumns.filter(col => 
+                    columnIndices[col] === -1
+                );
+
+                if (missingColumns.length > 0) {
+                    throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
+                }
+
+                console.log("Found column indices:", columnIndices);
+
+                // Count total and driver/assistant records for debugging
+                let totalRecords = 0;
+                let driverAssistantRecords = 0;
+
+                const records = lines.slice(1)
+                    .map((line, index) => {
+                        if (!line.trim()) return null;
+                        totalRecords++;
+                        
+                        // Split the line, handling possible commas within quoted fields
+                        const values = line.split(',').map(v => v.trim());
+
+                        // Check both selection field and for keywords
+                        const selection = values[columnIndices.selection] || '';
+                        const isDriverAssistant =
+                            selection.toLowerCase().includes('driver') ||
+                            selection.toLowerCase().includes('assistant') ||
+                            selection === 'Driver / Assistant';
+
+                        // Log driver/assistant detection for debugging
+                        if (isDriverAssistant) {
+                            console.log(`Detected Driver/Assistant: ${values[columnIndices.firstName] || ''} ${values[columnIndices.lastName] || ''} - Selection: "${selection}"`);
+                            driverAssistantRecords++;
+                            return null;
+                        }
+                        
+                        // Combine all available phone numbers
+                        const phoneNumbers = [
+                            values[columnIndices.mobilePhone],
+                            values[columnIndices.homePhone],
+                            values[columnIndices.workPhone]
+                        ]
+                            .filter(phone => phone && phone.trim())
+                            .join(' / ');
+
+                        // Combine medical notes and transportation needs
+                        const combinedNotes = [
+                            values[columnIndices.medicalNotes],
+                            values[columnIndices.notes]
+                        ]
+                            .filter(note => note && note.trim() && note.toLowerCase() !== 'none')
+                            .join(' | ');
+
+                        // Try to get the rider count from the selection field
+                        let riderCount = 1;
+                        if (selection && selection.includes("How many people need a ride from your home?")) {
+                            const match = selection.match(/\((\d+)\)/);
+                            if (match && match[1]) {
+                                riderCount = parseInt(match[1]);
+                            }
+                        }
+
+                        const record = {
+                            name: `${values[columnIndices.firstName] || ''} ${values[columnIndices.lastName] || ''}`.trim(),
+                            street: values[columnIndices.street],
+                            city: values[columnIndices.city],
+                            state: values[columnIndices.state],
+                            zip: values[columnIndices.zip],
+                            service: values[columnIndices.service] || '',
+                            phone: phoneNumbers || 'No phone number provided',
+                            notes: combinedNotes || 'None',
+                            riderCount: riderCount,
+                            selection: selection
+                        };
+
+                        // Add full address property
+                        record.fullAddress = `${record.street}, ${record.city}, ${record.state} ${record.zip}`;
+
+                        return record;
+                    })
+                    .filter(record => {
+                        // Filter out null records and those missing required address fields
+                        const isValid = record && 
+                                        record.street && 
+                                        record.city && 
+                                        record.state && 
+                                        record.zip;
+                                        // record.selection !== 'Driver / Assistant';
+
+                        if (!isValid && record) {
+                            console.log("Filtered out invalid record:", record);
+                        }
+                        return isValid;
+                    });
+
+                console.log(`CSV Processing Summary:
+                    Total records: ${totalRecords}
+                    Driver/Assistant records: ${driverAssistantRecords}
+                    Valid rider records: ${records.length}
+                `);
+
+                resolve(records);
+            } catch (error) {
+                console.error("Error parsing CSV:", error);
+                reject(error);
             }
-
-            const records = lines.slice(1)
-                .map(line => {
-                    if (!line.trim()) return null;
-                    const values = line.split(',');
-                    return {
-                        name: `${values[nameIndex]} ${values[lastNameIndex]}`.trim(),
-                        street: values[streetIndex],
-                        city: values[cityIndex],
-                        state: values[stateIndex],
-                        zip: values[zipIndex],
-                        service: values[serviceIndex],
-                        phone: values[phoneIndex],
-                        notes: values[notesIndex] || 'None',
-                        riderCount: values[riderCountIndex] ? parseInt(values[riderCountIndex]) : 1,
-                        fullAddress: `${values[streetIndex]}, ${values[cityIndex]}, ${values[stateIndex]} ${values[zipIndex]}`
-                    };
-                })
-                .filter(record => record && record.street && record.city && record.state);
-
-            resolve(records);
         };
-        reader.onerror = reject;
+        reader.onerror = (error) => {
+            console.error("Error reading file:", error);
+            reject(error);
+        };
         reader.readAsText(file);
     });
+}
+
+// Function to display error with dismissal option
+function displayError(message) {
+    console.error(message);
+    const errorDiv = document.getElementById('error-messages');
+    
+    // Create a unique ID for this error message
+    const errorId = 'error-' + Date.now();
+    
+    // Create the error message with dismiss button
+    const errorElement = document.createElement('div');
+    errorElement.id = errorId;
+    errorElement.className = 'bg-red-50 border-l-4 border-red-500 p-4 mb-4 relative';
+    errorElement.innerHTML = `
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="ml-3">
+                <p class="text-sm text-red-700">${message}</p>
+            </div>
+        </div>
+        <button class="absolute top-1 right-1 text-red-400 hover:text-red-600" onclick="document.getElementById('${errorId}').remove();">
+            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+        </button>
+    `;
+    
+    errorDiv.appendChild(errorElement);
+}
+
+// Function to clear all errors
+function clearErrors() {
+    document.getElementById('error-messages').innerHTML = '';
+}
+
+// Function to validate addresses using Google Maps Geocoding API
+async function validateAddresses(records) {
+    const geocoder = new google.maps.Geocoder();
+    const validatedRecords = [];
+    const invalidRecords = [];
+    
+    showLoading();
+    
+    for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        try {
+            // Use a promise to wait for geocoding results
+            const result = await new Promise((resolve, reject) => {
+                geocoder.geocode({ 'address': record.fullAddress }, function(results, status) {
+                    if (status === google.maps.GeocoderStatus.OK) {
+                        resolve(results);
+                    } else {
+                        reject(new Error(status));
+                    }
+                });
+            });
+            
+            // If we get here, the address is valid
+            // Update the record with the formatted address from Google
+            const validatedRecord = {...record};
+            validatedRecord.formattedAddress = result[0].formatted_address;
+            validatedRecord.geocoded = true;
+            validatedRecord.location = {
+                lat: result[0].geometry.location.lat(),
+                lng: result[0].geometry.location.lng()
+            };
+            
+            validatedRecords.push(validatedRecord);
+            
+            // Update progress every 5 records
+            if (i % 5 === 0) {
+                displayProgress(`Validating addresses... (${i+1}/${records.length})`);
+            }
+            
+            // Add a small delay to avoid hitting rate limits
+            await sleep(100);
+            
+        } catch (error) {
+            console.warn(`Failed to validate address for ${record.name}: ${record.fullAddress}`, error);
+            record.geocoded = false;
+            record.validationError = error.message;
+            invalidRecords.push(record);
+        }
+    }
+    
+    hideLoading();
+    
+    // Display a warning if there are invalid addresses
+    if (invalidRecords.length > 0) {
+        const errorId = 'invalid-addresses-' + Date.now();
+        const errorMsg = `
+            <div id="${errorId}" class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-4 relative">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-700 font-medium">Found ${invalidRecords.length} invalid or unresolvable addresses:</p>
+                        <ul class="text-sm ml-4 mt-2 list-disc text-yellow-700">
+                            ${invalidRecords.map(r => `<li>${r.name}: ${r.fullAddress} (${r.validationError})</li>`).join('')}
+                        </ul>
+                        <div class="mt-3">
+                            <button id="proceedWithValid" class="px-3 py-1 bg-blue-500 text-white rounded mr-2 hover:bg-blue-600">
+                                Proceed with valid addresses only
+                            </button>
+                            <button id="cancelRoute" class="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <button class="absolute top-1 right-1 text-yellow-400 hover:text-yellow-600" 
+                        onclick="document.getElementById('${errorId}').remove();">
+                    <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+            </div>
+        `;
+        
+        const errorDiv = document.getElementById('error-messages');
+        errorDiv.innerHTML = errorMsg;
+        
+        // Return a promise that resolves when the user makes a choice
+        return new Promise((resolve, reject) => {
+            document.getElementById('proceedWithValid').addEventListener('click', () => {
+                document.getElementById(errorId).remove();
+                resolve(validatedRecords);
+            });
+            
+            document.getElementById('cancelRoute').addEventListener('click', () => {
+                document.getElementById(errorId).remove();
+                resetUI();
+                reject(new Error('Address validation cancelled'));
+            });
+        });
+    }
+    
+    return validatedRecords;
+}
+
+// Function to display progress updates
+function displayProgress(message) {
+    const loadingDiv = document.getElementById('loading');
+    loadingDiv.innerHTML = `
+        <div class="flex items-center justify-center mb-4">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            <span class="ml-2 text-gray-600">${message}</span>
+        </div>
+    `;
+    loadingDiv.classList.remove('hidden');
 }
 
 function nearestNeighbor(matrix, records) {
@@ -223,12 +498,25 @@ function displaySummary(records) {
 }
 
 async function displayMapRoute(directionsService, directionsRenderer, addresses) {
-    return new Promise((resolve, reject) => {
-        const waypoints = addresses.slice(1, -1).map(address => ({
-            location: address,
-            stopover: true
-        }));
+    if (addresses.length > 27) { //25 waypoints + origin + destination
+        displayError(`Route has ${addresses.length - 2} stops, exceeding Google Maps limit of 25 waypoints. The route will be displayed without optimization.`);
+    }
 
+    // Limit waypoints to 25 (Google Maps API limit)
+    const MAX_WAYPOINTS = 25;
+    let waypoints = addresses.slice(1, -1).map(address => ({
+        location: address,
+        stopover: true
+    }));
+
+    // If too many waypoints, let the user know some will be excluded from the map
+    // but we'll keep them in the route list
+    if (waypoints.length > MAX_WAYPOINTS) {
+        displayError(`Only showing first ${MAX_WAYPOINTS} stops on the map due to Google Maps limitations, but all stops are included in the route list.`);
+        waypoints = waypoints.slice(0, MAX_WAYPOINTS);
+    }
+
+    return new Promise((resolve, reject) => {
         const request = {
             origin: addresses[0],
             destination: addresses[0],
@@ -253,15 +541,24 @@ async function displayMapRoute(directionsService, directionsRenderer, addresses)
 
 // Add this function to create the directions URL
 function createGoogleMapsDirectionsUrl(route) {
-    // Google Maps has a limit on the number of waypoints in the URL
-    // We'll include all stops but be aware of potential limitations
+    // Google Maps has a limit of 10 waypoints in the URL
+    const MAX_URL_WAYPOINTS = 10;
+
     const origin = encodeURIComponent(route[0].fullAddress);
     const destination = encodeURIComponent(route[0].fullAddress); // Return to start
     
+    // Take only the first 10 waypoints for the URL
+    const waypointsToInclude = route.slice(1, Math.min(route.length - 1, MAX_URL_WAYPOINTS + 1));
+    
     // Convert intermediate stops to waypoints
-    const waypoints = route.slice(1, -1)
+    const waypoints = waypointsToInclude
         .map(stop => encodeURIComponent(stop.fullAddress))
         .join('|');
+
+    // Alert the user if we've truncated waypoints
+    if (route.length - 2 > MAX_URL_WAYPOINTS) {
+        displayError(`Google Maps URLs can only include ${MAX_URL_WAYPOINTS} stops (besides start/end) will be included in the Google Maps link. You may need to create multiple routes.`);
+    }
     
     return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}&travelmode=driving`;
 }
@@ -436,73 +733,100 @@ function displaySummary(records) {
     const content = document.getElementById('summaryContent');
     
     summary.classList.remove('hidden');
-    // Add white background and proper styling to the summary section
     summary.className = 'mt-6 bg-white p-6 rounded-lg shadow';
     
-    const totalRiders = records.length;
+    const totalRiders = records.reduce((sum, record) => sum + (record.riderCount || 1), 0);
     const serviceTypes = [...new Set(records.map(r => r.service))];
     
     content.innerHTML = `
         <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
             <p class="mb-2 text-gray-800"><strong>Total Riders:</strong> ${totalRiders}</p>
+            <p class="text-gray-800"><strong>Number of Stops:</strong> ${records.length}</p>
             <p class="text-gray-800"><strong>Services:</strong> ${serviceTypes.join(', ')}</p>
+            <p class="text-gray-800 mt-2"><em>Note: Drivers and assistants are not included in the route.</em></p>
         </div>
     `;
 }
 
-async function handleFileSelect(event) {
+function handleFileSelect(event) {
     resetUI();
     showLoading();
     
-    const file = document.getElementById('csvFile').files[0];
-    const serviceFilter = document.getElementById('serviceFilter').value;
+    const fileInput = document.getElementById('csvFile');
+    console.log("File input element:", fileInput);
     
-    if (!file) {
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
         hideLoading();
+        displayError('No file selected');
         return;
     }
+    
+    const file = fileInput.files[0];
+    const serviceFilter = document.getElementById('serviceFilter').value;
+    
+    console.log("Selected file:", file);
+    console.log("Service filter:", serviceFilter);
 
-    try {
-        const records = await parseCSV(file);
-        const filteredRecords = serviceFilter === 'all' 
-            ? records 
-            : records.filter(record => record.service.includes(serviceFilter));
+    parseCSV(file)
+        .then(records => {
+            console.log("Parsed records:", records);
+            
+            const filteredRecords = serviceFilter === 'all' 
+                ? records 
+                : records.filter(record => record.service.includes(serviceFilter));
 
-        if (filteredRecords.length < 2) {
-            throw new Error('Not enough addresses to optimize route');
-        }
+            console.log("Filtered records:", filteredRecords);
+            
+            if (filteredRecords.length < 2) {
+                throw new Error('Not enough addresses to optimize route');
+            }
+            
+            // First validate the addresses before proceeding
+            return validateAddresses(filteredRecords)
+                .then(validatedRecords => {
+                    if (validatedRecords.length < 2) {
+                        throw new Error('Not enough valid addresses to optimize route');
+                    }
+                    
+                    currentRecords = validatedRecords;
+                    
+                    // Continue with the route optimization
+                    const map = new google.maps.Map(document.getElementById("map"), {
+                        zoom: 12,
+                        center: { lat: 38.8817, lng: -94.8191 },
+                    });
 
-        currentRecords = filteredRecords; // Store the records globally
+                    const directionsService = new google.maps.DirectionsService();
+                    const directionsRenderer = new google.maps.DirectionsRenderer();
+                    directionsRenderer.setMap(map);
 
-        const map = new google.maps.Map(document.getElementById("map"), {
-            zoom: 12,
-            center: { lat: 38.8817, lng: -94.8191 },
+                    // Use the validated formatted addresses from Google
+                    const addresses = validatedRecords.map(record => record.formattedAddress || record.fullAddress);
+                    const service = new google.maps.DistanceMatrixService();
+                    
+                    displayProgress("Calculating distances between addresses...");
+                    
+                    return getDistanceMatrixWithRetry(service, addresses)
+                        .then(matrix => {
+                            displayProgress("Optimizing route...");
+                            const route = nearestNeighbor(matrix, validatedRecords);
+                            displaySummary(validatedRecords);
+                            return displayMapRoute(directionsService, directionsRenderer, route.map(r => r.formattedAddress || r.fullAddress))
+                                .then(() => displayRouteList(route));
+                        });
+                });
+        })
+        .then(() => {
+            document.getElementById('resetButton').classList.remove('hidden');
+        })
+        .catch(error => {
+            console.error("Error processing file:", error);
+            displayError(`Processing Error: ${error.message}`);
+        })
+        .finally(() => {
+            hideLoading();
         });
-
-        const directionsService = new google.maps.DirectionsService();
-        const directionsRenderer = new google.maps.DirectionsRenderer();
-        directionsRenderer.setMap(map);
-
-        const addresses = filteredRecords.map(record => record.fullAddress);
-        const service = new google.maps.DistanceMatrixService();
-        
-        const matrix = await getDistanceMatrixWithRetry(service, addresses);
-        const route = nearestNeighbor(matrix, filteredRecords);
-        
-        displaySummary(filteredRecords);
-        await displayMapRoute(directionsService, directionsRenderer, route.map(r => r.fullAddress));
-        displayRouteList(route);
-        
-        document.getElementById('resetButton').classList.remove('hidden');
-        
-    } catch (error) {
-        displayError(`Processing Error: ${error.message}`);
-    } finally {
-        hideLoading();
-    }
 }
-
-let currentRecords = []; // Store the current records globally
 
 function addNewStop() {
     const name = document.getElementById('newName').value.trim();
@@ -512,9 +836,16 @@ function addNewStop() {
     const state = document.getElementById('newState').value.trim();
     const zip = document.getElementById('newZip').value.trim();
     const notes = document.getElementById('newNotes').value.trim();
+    const role = document.getElementById('newRole').value.trim();
     
     if (!name || !street || !city || !state || !zip) {
         displayError('Name, street address, city, state, and zip code are required');
+        return;
+    }
+
+    // Don't add the stop if it's a driver/assistant
+    if (role === 'driver' || role === 'assistant') {
+        displayError('Drivers and assistants are not added to the route');
         return;
     }
 
@@ -529,7 +860,8 @@ function addNewStop() {
         zip: zip,
         phone: phone,
         notes: notes || 'None',
-        riderCount: 1, // Default to 1 rider
+        riderCount: 1,
+        selection: 'How many people need a ride from your home? (1)', //Set as rider by default
         service: document.getElementById('serviceFilter').value
     };
 
@@ -544,6 +876,7 @@ function addNewStop() {
     document.getElementById('newState').value = '';
     document.getElementById('newZip').value = '';
     document.getElementById('newNotes').value = '';
+    document.getElementById('newRole').value = 'rider';
 }
 
 async function reoptimizeRoute(useNearestNeighbor = true) {
@@ -597,30 +930,36 @@ async function initialize() {
         const mapsLoaded = await initializeGoogleMaps();
         if (!mapsLoaded) return;
         
+        // Get DOM elements
         const csvFileInput = document.getElementById('csvFile');
         const serviceFilter = document.getElementById('serviceFilter');
         const resetButton = document.getElementById('resetButton');
         const addStopButton = document.getElementById('addStop');
-        // Add New Stop toggle functionality
         const addStopToggle = document.getElementById('addStopToggle');
         const addStopForm = document.getElementById('addStopForm');
         const toggleIcon = document.getElementById('toggleIcon');
-        
-        addStopToggle.addEventListener('click', () => {
-            addStopForm.classList.toggle('hidden');
-            toggleIcon.classList.toggle('rotate-180');
-        });
-        
+
+        // Add event listeners for file and service selection
         csvFileInput.addEventListener('change', handleFileSelect);
         serviceFilter.addEventListener('change', handleFileSelect);
+
+        // Reset button functionality
         resetButton.addEventListener('click', () => {
             csvFileInput.value = '';
             resetUI();
             currentRecords = [];
         });
-        addStopButton.addEventListener('click', addNewStop);
 
-        // Event delegation for all buttons in the route list
+        // Add new stop functionality
+        addStopButton.addEventListener('click', addNewStop);
+        
+        // Toggle form visibility
+        addStopToggle.addEventListener('click', () => {
+            addStopForm.classList.toggle('hidden');
+            toggleIcon.classList.toggle('rotate-180');
+        });
+
+        // Event delegation for route list buttons (e.g., delete stops)
         document.getElementById('result').addEventListener('click', (e) => {
             if (e.target.classList.contains('delete-stop')) {
                 const index = parseInt(e.target.dataset.index);
@@ -629,9 +968,11 @@ async function initialize() {
                 }
             }
         });
+
     } catch (error) {
         displayError(`Initialization Error: ${error.message}`);
     }
 }
 
+// Initialize the app when the window loads
 window.addEventListener('load', initialize);
