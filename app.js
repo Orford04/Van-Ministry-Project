@@ -160,9 +160,10 @@ function parseCSV(file) {
                 const lines = csv.split('\n');
                 const headers = lines[0].split(',').map(h => h.trim());
 
-                // Log the first few lines to see the exact format
-                console.log("CSV Headers:", lines[0]);
-                console.log("First record:", lines[1]);
+                // Log the first few lines to better understand the format
+                console.log("CSV Headers:", headers);
+                if (lines.length > 1) console.log("First record:", lines[1]);
+                if (lines.length > 2) console.log("Second record:", lines[2]);
                 
                 // Map exact column names from the CSV
                 const columnIndices = {
@@ -173,16 +174,16 @@ function parseCSV(file) {
                     state: headers.indexOf('Home Address State'),
                     zip: headers.indexOf('Home Address Zip'),
                     service: headers.indexOf('Which service do you need a ride to?'),
+                    physicalNeeds: headers.indexOf('Please list any physical needs that would affect transportation. If you don\'t have any, type NONE.'),
                     mobilePhone: headers.indexOf('Mobile Phone Number'),
                     homePhone: headers.indexOf('Home Phone Number'),
                     workPhone: headers.indexOf('Work Phone Number'),
-                    notes: headers.indexOf('Please list any physical needs that would affect transportation. If you don\'t have any, type NONE.'),
-                    medicalNotes: headers.indexOf('Medical Notes'),
-                    selection: headers.indexOf('Selection')
+                    selection: headers.indexOf('Selection'),
+                    status: headers.indexOf('Status')
                 };
 
                 // Verify required columns exist
-                const requiredColumns = ['street', 'city', 'state', 'zip', 'selection'];
+                const requiredColumns = ['street', 'city', 'state', 'zip']; /*remove selection*/
                 const missingColumns = requiredColumns.filter(col => 
                     columnIndices[col] === -1
                 );
@@ -198,23 +199,28 @@ function parseCSV(file) {
                 let driverAssistantRecords = 0;
 
                 const records = lines.slice(1)
+                    .filter(line => line.trim()) // Skip empty lines
                     .map((line, index) => {
-                        if (!line.trim()) return null;
-                        totalRecords++;
+                      totalRecords++;
                         
                         // Split the line, handling possible commas within quoted fields
                         const values = line.split(',').map(v => v.trim());
 
                         // Check both selection field and for keywords
                         const selection = values[columnIndices.selection] || '';
-                        const isDriverAssistant =
-                            selection.toLowerCase().includes('driver') ||
+                        const status = values[columnIndices.status] || '';
+                        const isDriverAssistant = 
+                            (selection.toLowerCase().includes('driver') || 
                             selection.toLowerCase().includes('assistant') ||
-                            selection === 'Driver / Assistant';
+                            selection === 'Driver / Assistant' ||
+                            selection.toLowerCase().includes('driver / assistant') ||
+                            selection.toLowerCase().includes('driver/assistant') ||
+                            status.toLowerCase().includes('driver') ||
+                            status.toLowerCase().includes('assistant'));
 
                         // Log driver/assistant detection for debugging
                         if (isDriverAssistant) {
-                            console.log(`Detected Driver/Assistant: ${values[columnIndices.firstName] || ''} ${values[columnIndices.lastName] || ''} - Selection: "${selection}"`);
+                            console.log(`Detected Driver/Assistant: ${values[columnIndices.firstName] || ''} ${values[columnIndices.lastName] || ''} - Selection: "${selection}", Status: "${status}"`);
                             driverAssistantRecords++;
                             return null;
                         }
@@ -227,7 +233,7 @@ function parseCSV(file) {
                         ]
                             .filter(phone => phone && phone.trim())
                             .join(' / ');
-
+                        /*
                         // Combine medical notes and transportation needs
                         const combinedNotes = [
                             values[columnIndices.medicalNotes],
@@ -243,7 +249,7 @@ function parseCSV(file) {
                             if (match && match[1]) {
                                 riderCount = parseInt(match[1]);
                             }
-                        }
+                        }*/
 
                         const record = {
                             name: `${values[columnIndices.firstName] || ''} ${values[columnIndices.lastName] || ''}`.trim(),
@@ -253,9 +259,9 @@ function parseCSV(file) {
                             zip: values[columnIndices.zip],
                             service: values[columnIndices.service] || '',
                             phone: phoneNumbers || 'No phone number provided',
-                            notes: combinedNotes || 'None',
-                            riderCount: riderCount,
-                            selection: selection
+                            notes: values[columnIndices.physicalNeeds] || 'None',
+                            riderCount: 1
+                            /*selection: selection*/
                         };
 
                         // Add full address property
@@ -479,6 +485,7 @@ function nearestNeighbor(matrix, records) {
     }
 
     route.push(0);
+    console.log('Original records length: ${records.length}, route length: ${route.length}');
     return route.map(index => records[index]);
 }
 
@@ -498,6 +505,9 @@ function displaySummary(records) {
 }
 
 async function displayMapRoute(directionsService, directionsRenderer, addresses) {
+    console.log("Addresses for route:", addresses);
+    console.log("Number of addresses:", addresses.length);
+
     if (addresses.length > 27) { //25 waypoints + origin + destination
         displayError(`Route has ${addresses.length - 2} stops, exceeding Google Maps limit of 25 waypoints. The route will be displayed without optimization.`);
     }
@@ -719,6 +729,14 @@ function displayRouteList(route) {
         routeList.appendChild(li);
     });
 
+    // Add event listeners to all delete buttons AFTER adding them to the DOM
+    document.querySelectorAll('.delete-stop').forEach(button => {
+        button.addEventListener('click', function() {
+            const index = parseInt(this.getAttribute('data-index'), 10);
+            deleteStop(index);
+        });
+    });
+
     enableDragAndDrop(routeList);
 
     document.getElementById('getDirections').addEventListener('click', () => {
@@ -776,6 +794,7 @@ function handleFileSelect(event) {
                 : records.filter(record => record.service.includes(serviceFilter));
 
             console.log("Filtered records:", filteredRecords);
+            console.log('Number of records after filtering: ${filteredRecords.length}');
             
             if (filteredRecords.length < 2) {
                 throw new Error('Not enough addresses to optimize route');
@@ -784,6 +803,7 @@ function handleFileSelect(event) {
             // First validate the addresses before proceeding
             return validateAddresses(filteredRecords)
                 .then(validatedRecords => {
+                    console.log('Number of validated records:${validatedRecords.length}');
                     if (validatedRecords.length < 2) {
                         throw new Error('Not enough valid addresses to optimize route');
                     }
@@ -922,7 +942,7 @@ function deleteStop(index) {
         return;
     }
 
-    reoptimizeRoute();
+    reoptimizeRoute(true);
 }
 
 async function initialize() {

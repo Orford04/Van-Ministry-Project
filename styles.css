@@ -8,11 +8,14 @@ body {
 }
 
 .sub-header {
-    color: #666666;
+    /*color: #666666;*/
+    color: #3b82f6;
     font-size: 24px;
     text-align: center;
     margin-bottom: 2rem;
-    font-weight: 300;   /* this makes it slightly thinner than normal text */
+    font-weight: 500;   /*increased from 300*/
+    /*border-bottom: 2px solid #e5e7eb;*/
+    padding-bottom: 0.5rem;
 }
 
 .dragging {
@@ -26,4 +29,53 @@ body {
 
 .transition-transform {
     transition: transform 0.2s ease-in-out;
+}
+
+/* New styles to improve visual distinction */
+.max-w-4xl.mx-auto {
+    background-color: #f7f7f7; 
+    border: 1px solid #e5e7eb;
+}
+
+/* Create section boxes */
+.mb-6 {
+    background-color: white;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.05);
+    margin-bottom: 1.5rem;
+}
+
+input, select {
+    background-color: #f9fafb !important; /* Light gray background for form elements */
+    border: 1px solid #d1d5db !important;
+}
+
+#routeList li {
+    background-color: white;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    border-radius: 0.375rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+#routeList li:hover {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+/* Fix spacing in summary and result sections */
+#summary, #result {
+    margin-top: 1.5rem;
+}
+
+/* Style buttons consistently */
+button {
+    transition: all 0.2s ease;
+}
+
+button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
