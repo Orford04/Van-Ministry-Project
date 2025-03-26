@@ -809,35 +809,8 @@ function handleFileSelect(event) {
                     }
                     
                     currentRecords = validatedRecords;
-                    
-                    // Continue with the route optimization
-                    const map = new google.maps.Map(document.getElementById("map"), {
-                        zoom: 12,
-                        center: { lat: 38.8817, lng: -94.8191 },
-                    });
-
-                    const directionsService = new google.maps.DirectionsService();
-                    const directionsRenderer = new google.maps.DirectionsRenderer();
-                    directionsRenderer.setMap(map);
-
-                    // Use the validated formatted addresses from Google
-                    const addresses = validatedRecords.map(record => record.formattedAddress || record.fullAddress);
-                    const service = new google.maps.DistanceMatrixService();
-                    
-                    displayProgress("Calculating distances between addresses...");
-                    
-                    return getDistanceMatrixWithRetry(service, addresses)
-                        .then(matrix => {
-                            displayProgress("Optimizing route...");
-                            const route = nearestNeighbor(matrix, validatedRecords);
-                            displaySummary(validatedRecords);
-                            return displayMapRoute(directionsService, directionsRenderer, route.map(r => r.formattedAddress || r.fullAddress))
-                                .then(() => displayRouteList(route));
-                        });
+                    displayRouteList(currentRecords);
                 });
-        })
-        .then(() => {
-            document.getElementById('resetButton').classList.remove('hidden');
         })
         .catch(error => {
             console.error("Error processing file:", error);
@@ -886,7 +859,7 @@ function addNewStop() {
     };
 
     currentRecords.push(newStop);
-    reoptimizeRoute();
+    displayRouteList(currentRecords);
     
     // Clear input fields
     document.getElementById('newName').value = '';
@@ -899,7 +872,7 @@ function addNewStop() {
     document.getElementById('newRole').value = 'rider';
 }
 
-async function reoptimizeRoute(useNearestNeighbor = true) {
+async function optimizeRoute() {
     if (!currentRecords || currentRecords.length < 2) {
         displayError('Need at least 2 stops for route optimization');
         return;
@@ -909,18 +882,26 @@ async function reoptimizeRoute(useNearestNeighbor = true) {
     clearErrors();
     
     try {
-        if (useNearestNeighbor) {
-            const addresses = currentRecords.map(record => record.fullAddress);
-            const service = new google.maps.DistanceMatrixService();
-            const matrix = await getDistanceMatrixWithRetry(service, addresses);
-            const route = nearestNeighbor(matrix, currentRecords);
-            currentRecords = route; // Update currentRecords with the optimized route
-        }
+        const addresses = currentRecords.map(record => record.fullAddress);
+        const service = new google.maps.DistanceMatrixService();
+        const matrix = await getDistanceMatrixWithRetry(service, addresses);
+        const route = nearestNeighbor(matrix, currentRecords);
+        currentRecords = route; // Update currentRecords with the optimized route
         
-        await updateRouteDisplay(currentRecords);
+        const map = new google.maps.Map(document.getElementById("map"), {
+            zoom: 12,
+            center: { lat: 38.8817, lng: -94.8191 },
+        })
+
+        const directionsService = new google.maps.DirectionsService();
+        const directionsRenderer = new google.maps.DirectionsRenderer();
+        directionsRenderer.setMap(map);
+
+        await displayMapRoute(directionsService, directionsRenderer, route.map(r => r.formattedAddress || r.fullAddress));
+        displayRouteList(route);
         document.getElementById('resetButton').classList.remove('hidden');
     } catch (error) {
-        displayError(`Reoptimization Error: ${error.message}`);
+        displayError(`Optimization Error: ${error.message}`);
         console.error(error);
     } finally {
         hideLoading();
@@ -942,7 +923,7 @@ function deleteStop(index) {
         return;
     }
 
-    reoptimizeRoute(true);
+    displayRouteList(currentRecords);
 }
 
 async function initialize() {
@@ -958,6 +939,7 @@ async function initialize() {
         const addStopToggle = document.getElementById('addStopToggle');
         const addStopForm = document.getElementById('addStopForm');
         const toggleIcon = document.getElementById('toggleIcon');
+        const optimizeRouteButton = document.getElementById('optimizeRoute');
 
         // Add event listeners for file and service selection
         csvFileInput.addEventListener('change', handleFileSelect);
@@ -972,6 +954,9 @@ async function initialize() {
 
         // Add new stop functionality
         addStopButton.addEventListener('click', addNewStop);
+
+        // Optimize route button functionality
+        optimizeRouteButton.addEventListener('click', optimizeRoute);
         
         // Toggle form visibility
         addStopToggle.addEventListener('click', () => {
