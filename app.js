@@ -198,7 +198,7 @@ function parseCSV(file) {
                 let totalRecords = 0;
                 let driverAssistantRecords = 0;
 
-                const records = lines.slice(1)
+                const allRecords = lines.slice(1)
                     .filter(line => line.trim()) // Skip empty lines
                     .map((line, index) => {
                       totalRecords++;
@@ -284,13 +284,57 @@ function parseCSV(file) {
                         return isValid;
                     });
 
+                // Combine duplicate addresses, keeping the first person's name and merging other details
+                const combinedRecords = allRecords.reduce((acc, record) => {
+                    const existingRecord = acc.find(r =>
+                        r.fullAddress === record.fullAddress
+                    );
+
+                    if (existingRecord) {
+                        // Increment rider count
+                        existingRecord.riderCount += 1;
+
+                        // Merge phone numbers
+                        const phoneSet = new Set(
+                            existingRecord.phone.split(' / ')
+                                .concat(record.phone.split(' / '))
+                        );
+                        existingRecord.phone = Array.from(phoneSet).join(' / ');
+
+                        // Merge notes, removing duplicates and None
+                        const notesSet = new Set(
+                            existingRecord.notes.split(' | ')
+                                .concat(record.notes.split(' | '))
+                                .filter(note =>
+                                    note &&
+                                    note.toLowerCase() !== 'none'   
+                                )
+                        );
+                        existingRecord.notes = Array.from(notesSet).length > 0
+                            ? Array.from(notesSet).join(' | ')
+                            : 'None';
+                        
+                        // Combine services, removing duplicates
+                        const serviceSet = new Set(
+                            (existingRecord.service + ' ' + record.service)
+                                .split(/\s+/)
+                                .filter(s => s)
+                        );
+                        existingRecord.service = Array.from(serviceSet).join(', ');
+                    } else {
+                        acc.push(record);
+                    }
+
+                    return acc;
+                }, []);
+
                 console.log(`CSV Processing Summary:
                     Total records: ${totalRecords}
                     Driver/Assistant records: ${driverAssistantRecords}
-                    Valid rider records: ${records.length}
+                    Combined rider records: ${combinedRecords.length}
                 `);
 
-                resolve(records);
+                resolve(combinedRecords);
             } catch (error) {
                 console.error("Error parsing CSV:", error);
                 reject(error);
@@ -712,9 +756,21 @@ function displayRouteList(route) {
 
         li.innerHTML = `
             ${dragHandle}
-            <div class="font-semibold text-gray-800 ml-6">
+            <div class="font-semibold text-gray-800 ml-6 flex items-center">
                 ${record.name} 
-                <span class="text-sm font-normal text-gray-600">- ${riderCount} ${riderText} ${pointLabel}</span>
+                <span class="text-sm font-normal text-gray-600 ml-2">- ${pointLabel}</span>
+                <div class="ml-4 flex items-center">
+                    <button class="decrement-riders px-2 py-1 bg-gray-200 rounded-1 text-gray-700 hover:bg-gray-300"
+                            data-index="${index}"
+                          ${riderCount <= 1 ? 'disabled' : ''}>
+                        -
+                    </button>
+                    <span class="px-3 py-1 bg-gray-100 riders-count">${riderCount} ${riderText}</span>
+                    <button class="increment-riders px-2 py-1 bg-gray-200 rounded-r text-gray-700 hover:bg-gray-300"
+                            data-index="${index}">
+                        +
+                    </button>
+                </div>
             </div>
             <div class="text-gray-700 mt-1 ml-6">${record.fullAddress}</div>
             <div class="text-sm text-gray-600 mt-1 ml-6">Phone: ${record.phone}</div>
@@ -727,6 +783,20 @@ function displayRouteList(route) {
             ` : ''}
         `;
         routeList.appendChild(li);
+    });
+
+    document.querySelectorAll('.increment-riders').forEach(button => {
+        button.addEventListener('click', function() {
+            const index = parseInt(this.getAttribute('data-index'), 10);
+            adjustRiderCount(index, 1);
+        });
+    });
+
+    document.querySelectorAll('.decrement-riders').forEach(button => {
+        button.addEventListener('click', function() {
+            const index = parseInt(this.getAttribute('data-index'), 10);
+            adjustRiderCount(index, -1);
+        });
     });
 
     // Add event listeners to all delete buttons AFTER adding them to the DOM
@@ -743,6 +813,16 @@ function displayRouteList(route) {
         const directionsUrl = createGoogleMapsDirectionsUrl(currentRecords);
         window.open(directionsUrl, '_blank');
     });
+}
+
+function adjustRiderCount(index, delta) {
+    const record = currentRecords[index];
+
+    // Ensure rider count doesn't go below 1
+    record.riderCount = Math.max(1, record.riderCount + delta);
+
+    // Re-render the route list to update UI
+    displayRouteList(currentRecords);
 }
 
 // Also update the summary display to maintain consistent styling
