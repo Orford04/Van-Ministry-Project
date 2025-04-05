@@ -287,7 +287,7 @@ function parseCSV(file) {
                 // Combine duplicate addresses, keeping the first person's name and merging other details
                 const combinedRecords = allRecords.reduce((acc, record) => {
                     const existingRecord = acc.find(r =>
-                        r.fullAddress === record.fullAddress
+                        normalizeAddress(r.fullAddress) === normalizeAddress(record.fullAddress)
                     );
 
                     if (existingRecord) {
@@ -492,6 +492,38 @@ async function validateAddresses(records) {
     }
     
     return validatedRecords;
+}
+
+function normalizeAddress(address) {
+    address = address.toLowerCase();
+    address = address.replace(/\s+/g, ' ').trim();
+
+    // Remove common abbreviations
+    const abbreviations = {
+        'street': 'st',
+        'avenue': 'ave',
+        'road': 'rd',
+        'boulevard': 'blvd',
+        'drive': 'dr',
+        'court': 'ct',
+        'lane': 'ln',
+        'place': 'pl'
+    };
+
+    Object.entries(abbreviations).forEach(([full, abbr]) => {
+        address = address.replace(new RegExp(`\\b${full}\\b`, 'g'), abbr);
+    });
+
+    // Remove punctuation except commas and periods
+    address = address.replace(/[^\w\s,.-]/g, '');
+
+    // Remove directional prefixes/suffixes
+    const directionals = ['n', 'north', 's', 'south', 'e', 'east', 'w', 'west'];
+    directionals.forEach(dir => {
+        address = address.replace(new RegExp(`\\b${dir}\\b`, 'g'), '');
+    });
+
+    return address
 }
 
 // Function to display progress updates
@@ -702,9 +734,12 @@ async function updateRouteDisplay(route) {
 function displayRouteList(route) {
     const resultDiv = document.getElementById('result');
     const routeList = document.getElementById('routeList');
+    const resetButton = document.getElementById('resetButton');
     
     resultDiv.classList.remove('hidden');
     resultDiv.className = 'mt-6 bg-white p-6 rounded-lg shadow';
+
+    resetButton.classList.remove('hidden');
     
     const existingButton = document.getElementById('directionsButtonContainer');
     if (existingButton) {
@@ -751,8 +786,17 @@ function displayRouteList(route) {
         const pointLabel = isStartPoint ? '(Start Point)' : 
                          isEndPoint ? '(End Point)' : '';
                          
-        const riderCount = record.riderCount || 1; // Fallback to 1 if not specified
-        const riderText = riderCount === 1 ? 'rider' : 'riders';
+        // Initialize rider count if not set
+        if (record.riderCount === undefined) {
+            record.riderCount = isStartPoint ? 0 : 1;
+        }
+        
+        // For the start point: allow count to go to 0
+        // For other points: minimum is 1
+        const minRiderCount = isStartPoint ? 0 : 1;
+        const disableDecrement = record.riderCount <= minRiderCount;
+        
+        const riderText = record.riderCount === 1 ? 'rider' : 'riders';
 
         li.innerHTML = `
             ${dragHandle}
@@ -762,10 +806,10 @@ function displayRouteList(route) {
                 <div class="ml-4 flex items-center">
                     <button class="decrement-riders px-2 py-1 bg-gray-200 rounded-1 text-gray-700 hover:bg-gray-300"
                             data-index="${index}"
-                          ${riderCount <= 1 ? 'disabled' : ''}>
+                          ${disableDecrement ? 'disabled' : ''}>
                         -
                     </button>
-                    <span class="px-3 py-1 bg-gray-100 riders-count">${riderCount} ${riderText}</span>
+                    <span class="px-3 py-1 bg-gray-100 riders-count">${record.riderCount} ${riderText}</span>
                     <button class="increment-riders px-2 py-1 bg-gray-200 rounded-r text-gray-700 hover:bg-gray-300"
                             data-index="${index}">
                         +
@@ -801,10 +845,8 @@ function displayRouteList(route) {
 
     // Add event listeners to all delete buttons AFTER adding them to the DOM
     document.querySelectorAll('.delete-stop').forEach(button => {
-        button.addEventListener('click', function() {
-            const index = parseInt(this.getAttribute('data-index'), 10);
-            deleteStop(index);
-        });
+        button.removeEventListener('click', deleteButtonHandler); // Remove any existing handlers
+        button.addEventListener('click', deleteButtonHandler);
     });
 
     enableDragAndDrop(routeList);
@@ -815,11 +857,23 @@ function displayRouteList(route) {
     });
 }
 
+// Add this function to handle delete button clicks
+function deleteButtonHandler(event) {
+    const index = parseInt(this.getAttribute('data-index'), 10);
+    console.log("Delete button clicked for index:", index);
+    deleteStop(index);
+    event.stopPropagation(); // Prevent event bubbling
+}
+
 function adjustRiderCount(index, delta) {
     const record = currentRecords[index];
-
-    // Ensure rider count doesn't go below 1
-    record.riderCount = Math.max(1, record.riderCount + delta);
+    const isStartPoint = index === 0;
+    
+    // Set minimum rider count based on whether it's the start point
+    const minRiderCount = isStartPoint ? 0 : 1;
+    
+    // Ensure rider count doesn't go below minimum
+    record.riderCount = Math.max(minRiderCount, (record.riderCount || minRiderCount) + delta);
 
     // Re-render the route list to update UI
     displayRouteList(currentRecords);
@@ -846,11 +900,86 @@ function displaySummary(records) {
     `;
 }
 
-function handleFileSelect(event) {
+// Global variable to store original records
+let originalRecords = null;
+let currentRecords = null;
+
+// Service Time Filter Implementation
+function filterRecordsByService(records, selectedService) {
+    console.log("Starting service filter with:", { selectedService, totalRecords: records.length });
+    
+    // If no service is selected or "all" is selected
+    if (!selectedService || selectedService === "all") {
+        console.log("Using 'All Services' filter");
+        return records;
+    }
+    
+    // Log the actual service values we're working with
+    console.log("Service values in records:", 
+        records.map(r => r["Which service do you need a ride to?"] || r.service).filter(Boolean));
+    
+    // Filter records based on service field
+    const filteredRecords = records.filter(record => {
+        // Get service field from either column name or the 'service' property
+        const serviceField = record["Which service do you need a ride to?"] || record.service || "";
+        
+        console.log(`Checking record ${record.name} with service: ${serviceField}`);
+        
+        // If service field is missing, exclude the record
+        if (!serviceField) {
+            console.log(`Record missing service field: ${record.name}`);
+            return false;
+        }
+        
+        // Case-insensitive comparison
+        const normalizedService = serviceField.toLowerCase();
+        const normalizedFilter = selectedService.toLowerCase();
+        
+        // For Sunday filter - match anything containing "sunday"
+        if (normalizedFilter.includes("sunday")) {
+            if (normalizedService.includes("sunday")) {
+                console.log(`Match found for Sunday: ${record.name}`);
+                return true;
+            }
+        }
+        
+        // For Wednesday filter - match anything containing "wednesday"
+        if (normalizedFilter.includes("wednesday")) {
+            if (normalizedService.includes("wednesday")) {
+                console.log(`Match found for Wednesday: ${record.name}`);
+                return true;
+            }
+        }
+        
+        // If no match was found
+        console.log(`No match for ${record.name} with service: ${serviceField}`);
+        return false;
+    });
+    
+    console.log(`Filter results: ${filteredRecords.length} of ${records.length} records matched`);
+    
+    // If no records match, return all records rather than an empty array
+    if (filteredRecords.length === 0) {
+        console.warn("No records matched the service filter. Returning all records instead.");
+        return records;
+    }
+    
+    return filteredRecords;
+}
+
+  function handleFileSelect(event) {
+    debugServiceFilter();
     resetUI();
     showLoading();
-    
-    const fileInput = document.getElementById('csvFile');
+
+    // Check if this is a service filter change rather than a file selection
+    if (event.target.id === 'serviceFilter') {
+        const serviceFilter = event.target.value;
+        applyServiceFilter(serviceFilter);
+        return;
+    }
+
+    const fileInput = event.target;
     console.log("File input element:", fileInput);
     
     if (!fileInput || !fileInput.files || !fileInput.files[0]) {
@@ -860,45 +989,168 @@ function handleFileSelect(event) {
     }
     
     const file = fileInput.files[0];
-    const serviceFilter = document.getElementById('serviceFilter').value;
-    
-    console.log("Selected file:", file);
-    console.log("Service filter:", serviceFilter);
 
     parseCSV(file)
         .then(records => {
             console.log("Parsed records:", records);
-            
-            const filteredRecords = serviceFilter === 'all' 
-                ? records 
-                : records.filter(record => record.service.includes(serviceFilter));
+            console.log("Service values in CSV:", 
+                records.map(r => r["Which service do you need a ride to?"]).filter(Boolean));
 
-            console.log("Filtered records:", filteredRecords);
-            console.log('Number of records after filtering: ${filteredRecords.length}');
+            // Store the original records before any modifications
+            originalRecords = [...records];
             
-            if (filteredRecords.length < 2) {
-                throw new Error('Not enough addresses to optimize route');
-            }
+            // Validate addresses first time
+            return validateAddresses(records);
+        })
+        .then(validatedRecords => {
+            // Make sure service information is preserved
+            validatedRecords.forEach(record => {
+                // Find the matching original record
+                const originalRecord = originalRecords.find(r => r.name === record.name);
+                if (originalRecord) {
+                    record["Which service do you need a ride to?"] = 
+                        originalRecord["Which service do you need a ride to?"];
+                }
+            });
             
-            // First validate the addresses before proceeding
-            return validateAddresses(filteredRecords)
-                .then(validatedRecords => {
-                    console.log('Number of validated records:${validatedRecords.length}');
-                    if (validatedRecords.length < 2) {
-                        throw new Error('Not enough valid addresses to optimize route');
-                    }
-                    
-                    currentRecords = validatedRecords;
-                    displayRouteList(currentRecords);
-                });
+            // Store the validated records
+            currentRecords = validatedRecords;
+            
+            // Apply service filter to the validated records
+            const serviceFilter = document.getElementById('serviceFilter').value;
+            applyServiceFilter(serviceFilter);
         })
         .catch(error => {
             console.error("Error processing file:", error);
             displayError(`Processing Error: ${error.message}`);
-        })
-        .finally(() => {
             hideLoading();
         });
+}
+
+function debugServiceFilter() {
+    console.group("Service Filter Debug");
+    
+    // Log current UI state
+    const serviceFilter = document.getElementById('serviceFilter');
+    console.log("Service filter DOM element:", serviceFilter);
+    console.log("Selected service:", serviceFilter ? serviceFilter.value : "Element not found");
+    
+    // Log data state
+    console.log("Original records:", originalRecords);
+    console.log("Current records:", currentRecords);
+    
+    // Service values in data
+    if (originalRecords) {
+        console.log("Service values in original records:", 
+            originalRecords.map(r => ({ 
+                name: r.name, 
+                service: r["Which service do you need a ride to?"] 
+            })));
+    }
+    
+    console.groupEnd();
+}
+
+// Add event listener for service filter changes
+function setupServiceFilterListener() {
+    const serviceFilterSelect = document.getElementById('serviceFilter');
+    if (serviceFilterSelect) {
+        serviceFilterSelect.addEventListener('change', function() {
+            const selectedService = this.value;
+            console.log("Service filter changed to:", selectedService);
+            showLoading();
+            applyServiceFilter(selectedService);
+        });
+    } else {
+        console.error("Service filter element not found in the DOM");
+    }
+}
+
+// Apply service filtering without revalidation
+function applyServiceFilter(serviceFilter) {
+    debugServiceFilter();
+    // Ensure we have original records
+    if (!originalRecords || originalRecords.length === 0) {
+        displayError('No records available to filter');
+        hideLoading();
+        return;
+    }
+
+    console.log("Applying service filter:", serviceFilter);
+    
+    try {
+        // If we don't have validated records yet, validate them first
+        if (!currentRecords || currentRecords.length === 0) {
+            // First time validation
+            validateAddresses([...originalRecords])
+                .then(validatedRecords => {
+                    // Store all validated records
+                    const allValidatedRecords = validatedRecords;
+                    
+                    // Now apply the service filter to these validated records
+                    const filteredRecords = filterRecordsByService([...allValidatedRecords], serviceFilter);
+                    
+                    if (filteredRecords.length < 2) {
+                        displayError('Not enough addresses to optimize route after filtering');
+                        hideLoading();
+                        return;
+                    }
+                    
+                    // Update current records with filtered results
+                    currentRecords = filteredRecords;
+                    displayRouteList(currentRecords);
+                    hideLoading();
+                })
+                .catch(error => {
+                    console.error("Error validating addresses:", error);
+                    displayError(`Validation Error: ${error.message}`);
+                    hideLoading();
+                });
+        } else {
+            // We need to filter from the original validated records
+            // First, copy the validated records that have geocoding information
+            const geocodedRecords = currentRecords.filter(record => record.geocoded === true);
+            
+            // Next, create a lookup of validated addresses
+            const validatedAddressMap = new Map();
+            geocodedRecords.forEach(record => {
+                // Use a combination of name and address as the key to ensure uniqueness
+                const key = `${record.name}-${record.fullAddress}`;
+                validatedAddressMap.set(key, record);
+            });
+            
+            // Now apply the service filter to the original records but keep geocoding info
+            const recordsToFilter = originalRecords.map(origRecord => {
+                const key = `${origRecord.name}-${origRecord.fullAddress}`;
+                // If we have a validated version, use that
+                if (validatedAddressMap.has(key)) {
+                    return validatedAddressMap.get(key);
+                }
+                // Otherwise use the original record
+                return origRecord;
+            });
+            
+            // Now apply the service filter
+            const filteredRecords = filterRecordsByService(recordsToFilter, serviceFilter);
+            
+            console.log(`Filtered records: ${filteredRecords.length}`);
+            
+            if (filteredRecords.length < 2) {
+                displayError('Not enough addresses to optimize route after filtering');
+                hideLoading();
+                return;
+            }
+            
+            // Update current records and display
+            currentRecords = filteredRecords;
+            displayRouteList(currentRecords);
+            hideLoading();
+        }
+    } catch (error) {
+        console.error("Error in service filter application:", error);
+        displayError(`Filter Error: ${error.message}`);
+        hideLoading();
+    }
 }
 
 function addNewStop() {
@@ -949,7 +1201,6 @@ function addNewStop() {
     document.getElementById('newState').value = '';
     document.getElementById('newZip').value = '';
     document.getElementById('newNotes').value = '';
-    document.getElementById('newRole').value = 'rider';
 }
 
 async function optimizeRoute() {
@@ -989,20 +1240,35 @@ async function optimizeRoute() {
 }
 
 function deleteStop(index) {
+    console.log("Deleting stop at index:", index);
+    console.log("Before deletion:", currentRecords.length, "records");
+    
     // Prevent deletion of the first stop (starting point)
     if (index === 0) {
         displayError('Cannot delete the starting point');
         return;
     }
-
-    currentRecords = currentRecords.filter((_, i) => i !== index);
+    
+    // Create a new array without the item at the specified index
+    const newRecords = [];
+    for (let i = 0; i < currentRecords.length; i++) {
+        if (i !== index) {
+            newRecords.push(currentRecords[i]);
+        }
+    }
+    
+    // Update currentRecords with the new array
+    currentRecords = newRecords;
+    
+    console.log("After deletion:", currentRecords.length, "records");
     
     if (currentRecords.length < 2) {
         displayError('Need at least 2 stops for route optimization');
         resetUI();
         return;
     }
-
+    
+    // Update the display with the modified records
     displayRouteList(currentRecords);
 }
 
@@ -1023,13 +1289,67 @@ async function initialize() {
 
         // Add event listeners for file and service selection
         csvFileInput.addEventListener('change', handleFileSelect);
-        serviceFilter.addEventListener('change', handleFileSelect);
 
         // Reset button functionality
-        resetButton.addEventListener('click', () => {
-            csvFileInput.value = '';
-            resetUI();
-            currentRecords = [];
+        resetButton.addEventListener('click', async () => {
+            // Show loading indicator
+            showLoading();
+            clearErrors();
+            
+            try {
+                // Revert to the original records before any edits
+                if (originalRecords) {
+                    // Re-validate addresses like when first uploaded
+                    const validatedRecords = await validateAddresses([...originalRecords]);
+                    
+                    // Update current records with validated ones
+                    currentRecords = validatedRecords;
+                    
+                    // Update UI
+                    displaySummary(currentRecords);
+                    displayRouteList(currentRecords);
+                    
+                    // Clear the map and prepare for fresh display
+                    const map = new google.maps.Map(document.getElementById("map"), {
+                        zoom: 12,
+                        center: { lat: 38.8817, lng: -94.8191 },
+                    });
+                    
+                    document.getElementById('map').classList.remove('hidden');
+                    
+                    // Create new directions service and renderer
+                    const directionsService = new google.maps.DirectionsService();
+                    const directionsRenderer = new google.maps.DirectionsRenderer({
+                        map: map,
+                        suppressMarkers: false,
+                        draggable: false
+                    });
+                    
+                    // Get addresses in the current order
+                    const addresses = currentRecords.map(r => r.fullAddress);
+                    
+                    // Create the directions request
+                    const request = {
+                        origin: addresses[0],
+                        destination: addresses[0], // Return to start
+                        waypoints: addresses.slice(1, -1).map(address => ({
+                            location: address,
+                            stopover: true
+                        })),
+                        optimizeWaypoints: false,
+                        travelMode: google.maps.TravelMode.DRIVING,
+                    };
+                    
+                    // Use the retry mechanism for the directions request
+                    const result = await getDirectionsWithRetry(directionsService, request);
+                    directionsRenderer.setDirections(result);
+                }
+            } catch (error) {
+                displayError(`Reset Error: ${error.message}`);
+                console.error(error);
+            } finally {
+                hideLoading();
+            }
         });
 
         // Add new stop functionality
@@ -1052,6 +1372,16 @@ async function initialize() {
                     deleteStop(index);
                 }
             }
+        });
+
+        document.getElementById('serviceFilter').addEventListener('change', function() {
+            showLoading();
+            const serviceFilter = this.value;
+            applyServiceFilter(serviceFilter);
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            setupServiceFilterListener();
         });
 
     } catch (error) {

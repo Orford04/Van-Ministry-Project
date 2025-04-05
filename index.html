@@ -28,9 +28,9 @@
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 mb-2">Service Time Filter</label>
             <select id="serviceFilter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
-                <option value="all">All Services</option>
-                <option value="Sunday">Sunday Service</option>
-                <option value="Wednesday">Wednesday Service</option>
+                <option value="Both service times">All Services</option>
+                <option value="Sunday AM services">Sunday Service</option>
+                <option value="Wednesday 6:30pm Services">Wednesday Service</option>
             </select>
         </div>
 
@@ -49,10 +49,6 @@
                     <input type="text" id="newCity" placeholder="City" class="rounded-md border-gray-300 shadow-sm">
                     <input type="text" id="newState" placeholder="State" class="rounded-md border-gray-300 shadow-sm">
                     <input type="text" id="newZip" placeholder="Zip Code" class="rounded-md border-gray-300 shadow-sm">
-                    <select id="newRole" class="rounded-md border-gray-300 shadow-sm">
-                        <option value="rider">Rider</option>
-                        <option value="driver">Driver/Assistant</option>
-                    </select>
                     <input type="text" id="newNotes" placeholder="Notes" class="rounded-md border-gray-300 shadow-sm md:col-span-2">
                     <button id="addStop" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
                         Add Stop
