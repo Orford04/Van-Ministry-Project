@@ -908,27 +908,39 @@ let currentRecords = null;
 function filterRecordsByService(records, selectedService) {
     console.log("Starting service filter with:", { selectedService, totalRecords: records.length });
     
-    // If no service is selected or "all" is selected
-    if (!selectedService || selectedService === "all") {
-        console.log("Using 'All Services' filter");
-        return records;
+    // Check if we have enough records to proceed
+    if (!records || records.length < 2) {
+        console.warn("Not enough records to filter: need at least 2 records");
+        return records; // Return whatever we have without filtering
     }
+    
+    // First, ensure we always keep the start point (first record) regardless of service
+    const startPoint = records[0];
+    
+    // Filter the remaining records based on service
+    const remainingRecords = records.slice(1);
     
     // Log the actual service values we're working with
     console.log("Service values in records:", 
-        records.map(r => r["Which service do you need a ride to?"] || r.service).filter(Boolean));
+        remainingRecords.map(r => r["Which service do you need a ride to?"] || r.service).filter(Boolean));
+    
+    // If no specific service is selected or "all" is selected, include all records
+    if (!selectedService || selectedService === "all") {
+        console.log("Using 'All Services' filter");
+        return records; // Return all records unfiltered
+    }
     
     // Filter records based on service field
-    const filteredRecords = records.filter(record => {
+    const filteredRemainingRecords = remainingRecords.filter(record => {
         // Get service field from either column name or the 'service' property
         const serviceField = record["Which service do you need a ride to?"] || record.service || "";
         
         console.log(`Checking record ${record.name} with service: ${serviceField}`);
         
-        // If service field is missing, exclude the record
-        if (!serviceField) {
-            console.log(`Record missing service field: ${record.name}`);
-            return false;
+        // If service field is missing or empty, include in ALL filter options
+        if (!serviceField || serviceField.trim() === "") {
+            console.log(`Record with empty service field included for all filters: ${record.name}`);
+            return true;
         }
         
         // Case-insensitive comparison
@@ -956,12 +968,15 @@ function filterRecordsByService(records, selectedService) {
         return false;
     });
     
+    // Combine the start point with filtered records
+    const filteredRecords = [startPoint, ...filteredRemainingRecords];
+    
     console.log(`Filter results: ${filteredRecords.length} of ${records.length} records matched`);
     
-    // If no records match, return all records rather than an empty array
-    if (filteredRecords.length === 0) {
-        console.warn("No records matched the service filter. Returning all records instead.");
-        return records;
+    // Check if we have enough records after filtering
+    if (filteredRecords.length < 2) {
+        console.warn("Not enough records matched the service filter. Returning all records instead.");
+        return records; // Return all records if filter results in too few records
     }
     
     return filteredRecords;
@@ -1091,7 +1106,7 @@ function applyServiceFilter(serviceFilter) {
                     const filteredRecords = filterRecordsByService([...allValidatedRecords], serviceFilter);
                     
                     if (filteredRecords.length < 2) {
-                        displayError('Not enough addresses to optimize route after filtering');
+                        displayError('Not enough addresses to create a route after filtering. Please select a different filter or add more addresses.');
                         hideLoading();
                         return;
                     }
@@ -1136,7 +1151,7 @@ function applyServiceFilter(serviceFilter) {
             console.log(`Filtered records: ${filteredRecords.length}`);
             
             if (filteredRecords.length < 2) {
-                displayError('Not enough addresses to optimize route after filtering');
+                displayError('Not enough addresses to create a route after filtering. Please select a different filter or add more addresses.');
                 hideLoading();
                 return;
             }
@@ -1161,18 +1176,19 @@ function addNewStop() {
     const state = document.getElementById('newState').value.trim();
     const zip = document.getElementById('newZip').value.trim();
     const notes = document.getElementById('newNotes').value.trim();
-    const role = document.getElementById('newRole').value.trim();
+    // const role = document.getElementById('newRole').value.trim();
     
     if (!name || !street || !city || !state || !zip) {
         displayError('Name, street address, city, state, and zip code are required');
         return;
     }
 
-    // Don't add the stop if it's a driver/assistant
+    /* Don't add the stop if it's a driver/assistant
     if (role === 'driver' || role === 'assistant') {
         displayError('Drivers and assistants are not added to the route');
         return;
     }
+    */
 
     const fullAddress = `${street}, ${city}, ${state} ${zip}`;
     
@@ -1190,7 +1206,15 @@ function addNewStop() {
         service: document.getElementById('serviceFilter').value
     };
 
-    currentRecords.push(newStop);
+    // Insert the new stop at position 1 (after the starting point)
+    if (currentRecords.length > 0) {
+        // Use splice to insert at index 1
+        currentRecords.splice(1, 0, newStop);
+    } else {
+        // If the array is empty, just push it
+        currentRecords.push(newStop);
+    }
+    
     displayRouteList(currentRecords);
     
     // Clear input fields
@@ -1213,10 +1237,29 @@ async function optimizeRoute() {
     clearErrors();
     
     try {
-        const addresses = currentRecords.map(record => record.fullAddress);
+        // Make sure we don't have duplicates in the currentRecords array
+        // by comparing addresses to identify and remove duplicates
+        const uniqueAddresses = new Set();
+        const uniqueRecords = [];
+        
+        // Always keep the first record (starting point)
+        uniqueRecords.push(currentRecords[0]);
+        uniqueAddresses.add(currentRecords[0].fullAddress);
+        
+        // Add all other records, avoiding duplicates of the starting point
+        for (let i = 1; i < currentRecords.length; i++) {
+            const record = currentRecords[i];
+            if (!uniqueAddresses.has(record.fullAddress)) {
+                uniqueRecords.push(record);
+                uniqueAddresses.add(record.fullAddress);
+            }
+        }
+        
+        // Use the deduplicated records for optimization
+        const addresses = uniqueRecords.map(record => record.fullAddress);
         const service = new google.maps.DistanceMatrixService();
         const matrix = await getDistanceMatrixWithRetry(service, addresses);
-        const route = nearestNeighbor(matrix, currentRecords);
+        const route = nearestNeighbor(matrix, uniqueRecords);
         currentRecords = route; // Update currentRecords with the optimized route
         
         const map = new google.maps.Map(document.getElementById("map"), {
