@@ -1237,29 +1237,33 @@ async function optimizeRoute() {
     clearErrors();
     
     try {
-        // Make sure we don't have duplicates in the currentRecords array
-        // by comparing addresses to identify and remove duplicates
-        const uniqueAddresses = new Set();
-        const uniqueRecords = [];
+        // Make a copy of the current records to preserve the starting point
+        const recordsToOptimize = [...currentRecords];
+
+        // Store the starting point separately
+        const startingPoint = recordsToOptimize[0];
+
+        // Get all other stops
+        const otherStops = recordsToOptimize.slice(1);
+
+        // Remove any stops that have the same address as the starting point
+        const uniqueStops = otherStops.filter(stop => 
+            stop.fullAddress !== startingPoint.fullAddress
+        );
         
         // Always keep the first record (starting point)
-        uniqueRecords.push(currentRecords[0]);
-        uniqueAddresses.add(currentRecords[0].fullAddress);
-        
-        // Add all other records, avoiding duplicates of the starting point
-        for (let i = 1; i < currentRecords.length; i++) {
-            const record = currentRecords[i];
-            if (!uniqueAddresses.has(record.fullAddress)) {
-                uniqueRecords.push(record);
-                uniqueAddresses.add(record.fullAddress);
-            }
-        }
+        // uniqueRecords.push(currentRecords[0]);
+        // uniqueAddresses.add(currentRecords[0].fullAddress);
+
+        // Create a new array with the starting point and unique stops
+        const cleanedRecords = [startingPoint, ...uniqueStops];
         
         // Use the deduplicated records for optimization
-        const addresses = uniqueRecords.map(record => record.fullAddress);
+        const addresses = cleanedRecords.map(record => record.fullAddress);
         const service = new google.maps.DistanceMatrixService();
         const matrix = await getDistanceMatrixWithRetry(service, addresses);
-        const route = nearestNeighbor(matrix, uniqueRecords);
+        const route = nearestNeighbor(matrix, cleanedRecords);
+
         currentRecords = route; // Update currentRecords with the optimized route
         
         const map = new google.maps.Map(document.getElementById("map"), {
@@ -1271,9 +1275,21 @@ async function optimizeRoute() {
         const directionsRenderer = new google.maps.DirectionsRenderer();
         directionsRenderer.setMap(map);
 
-        await displayMapRoute(directionsService, directionsRenderer, route.map(r => r.formattedAddress || r.fullAddress));
-        displayRouteList(route);
+        await displayMapRoute(directionsService, directionsRenderer, currentRecords.map(r => r.formattedAddress || r.fullAddress));
+
+        // Display the route list
+        displayRouteList(currentRecords);
+
+        // Display the summary
+        displaySummary(currentRecords);
+
         document.getElementById('resetButton').classList.remove('hidden');
+
+        // Show the summary container
+        if (document.getElementById('summary').classList.contains('hidden')) {
+            document.getElementById('summary').classList.remove('hidden');
+        }
+
     } catch (error) {
         displayError(`Optimization Error: ${error.message}`);
         console.error(error);
