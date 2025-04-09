@@ -564,22 +564,35 @@ function nearestNeighbor(matrix, records) {
     console.log('Original records length: ${records.length}, route length: ${route.length}');
     return route.map(index => records[index]);
 }
-
+/*
 function displaySummary(records) {
     const summary = document.getElementById('summary');
     const content = document.getElementById('summaryContent');
+
+    summary.classList.remove('hidden');
+    summary.className = 'mt-6 bg-white p-6 rounded-lg shadow';
     
-    const totalRiders = records.length;
+    // Calculate total riders based on the riderCount property
+    const totalRiders = records.reduce((sum, record) => {
+        // Check if riderCount exists and is a number
+        if (record.riderCount && !isNaN(parseInt(record.riderCount))) {
+            return sum + parseInt(record.riderCount);
+        }
+        // Default to 1
+        return sum + 1;
+    }, 0);
+
     const serviceTypes = [...new Set(records.map(r => r.service))];
     
     content.innerHTML = `
+        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
         <p class="mb-2"><strong>Total Riders:</strong> ${totalRiders}</p>
         <p class="mb-2"><strong>Services:</strong> ${serviceTypes.join(', ')}</p>
     `;
     
     summary.classList.remove('hidden');
 }
-
+*/
 async function displayMapRoute(directionsService, directionsRenderer, addresses) {
     console.log("Addresses for route:", addresses);
     console.log("Number of addresses:", addresses.length);
@@ -857,6 +870,32 @@ function displayRouteList(route) {
     });
 }
 
+function updateRiderCount(index, change) {
+    // Make sure we have valid records and index
+    if (!currentRecords || index < 0 || index >= currentRecords.length) return;
+    
+    // Get the current rider count (default to 1 if not set)
+    let currentCount = currentRecords[index].riderCount || 1;
+    
+    // Convert to number if it's a string
+    currentCount = parseInt(currentCount);
+    
+    // Apply the change (increase or decrease)
+    const newCount = Math.max(1, currentCount + change); // Ensure count is at least 1
+    
+    // Update the record
+    currentRecords[index].riderCount = newCount;
+    
+    // Also update the selection text if it exists
+    if (currentRecords[index].selection) {
+        currentRecords[index].selection = `How many people need a ride from your home? (${newCount})`;
+    }
+    
+    // Refresh the display
+    displayRouteList(currentRecords);
+    displaySummary(currentRecords);
+}
+
 // Add this function to handle delete button clicks
 function deleteButtonHandler(event) {
     const index = parseInt(this.getAttribute('data-index'), 10);
@@ -865,18 +904,37 @@ function deleteButtonHandler(event) {
     event.stopPropagation(); // Prevent event bubbling
 }
 
-function adjustRiderCount(index, delta) {
-    const record = currentRecords[index];
-    const isStartPoint = index === 0;
+function adjustRiderCount(index, change) {
+    // Ensure valid records and index
+    if (!currentRecords || index < 0 || index >= currentRecords.length) return;
+
+    // Get the current rider count (default to 1 if not set)
+    let currentCount = currentRecords[index].riderCount;
+    if (currentCount === undefined) {
+        currentCount = index === 0 ? 0 : 1; // Start point can be 0, others minimum 1
+    }
     
-    // Set minimum rider count based on whether it's the start point
-    const minRiderCount = isStartPoint ? 0 : 1;
-    
-    // Ensure rider count doesn't go below minimum
-    record.riderCount = Math.max(minRiderCount, (record.riderCount || minRiderCount) + delta);
+    // Convert to number to ensure proper calculation
+    currentCount = parseInt(currentCount);
+
+    // Apply the change (increase/decrease)
+    // The minimum is 0 for the start and 1 for the rest
+    const minCount = index === 0 ? 0 : 1;
+    const newCount = Math.max(minCount, currentCount + change);
+
+    // Update the record
+    currentRecords[index].riderCount = newCount;
+
+    // Update selection text
+    if (currentRecords[index].selection) {
+        currentRecords[index].selection = `How many people need a ride from your home? (${newCount})`;
+    }
 
     // Re-render the route list to update UI
     displayRouteList(currentRecords);
+
+    // Update the summary to reflect the new rider count
+    displaySummary(currentRecords);
 }
 
 // Also update the summary display to maintain consistent styling
@@ -887,15 +945,28 @@ function displaySummary(records) {
     summary.classList.remove('hidden');
     summary.className = 'mt-6 bg-white p-6 rounded-lg shadow';
     
-    const totalRiders = records.reduce((sum, record) => sum + (record.riderCount || 1), 0);
-    const serviceTypes = [...new Set(records.map(r => r.service))];
+    // Calculate total riders based on the riderCount property
+    const totalRiders = records.reduce((sum, record, index) => {
+        // Skip the end point (last record) if it's the same as start point
+        if (index === records.length - 1 && records[0].fullAddress === record.fullAddress) {
+            return sum;
+        }
+        
+        // For all points, only add if riderCount exists and is greater than 0
+        if (record.riderCount !== undefined && parseInt(record.riderCount) > 0) {
+            return sum + parseInt(record.riderCount);
+        }
+        
+        return sum;
+    }, 0);
+
+    const serviceTypes = [...new Set(records.map(r => r.service).filter(Boolean))];
     
     content.innerHTML = `
         <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
             <p class="mb-2 text-gray-800"><strong>Total Riders:</strong> ${totalRiders}</p>
             <p class="text-gray-800"><strong>Number of Stops:</strong> ${records.length}</p>
-            <p class="text-gray-800"><strong>Services:</strong> ${serviceTypes.join(', ')}</p>
-            <p class="text-gray-800 mt-2"><em>Note: Drivers and assistants are not included in the route.</em></p>
+            <p class="text-gray-800"><strong>Services:</strong> ${serviceTypes.join(', ') || 'None'}</p>
         </div>
     `;
 }
@@ -1216,6 +1287,7 @@ function addNewStop() {
     }
     
     displayRouteList(currentRecords);
+    displaySummary(currentRecords);
     
     // Clear input fields
     document.getElementById('newName').value = '';
@@ -1329,6 +1401,7 @@ function deleteStop(index) {
     
     // Update the display with the modified records
     displayRouteList(currentRecords);
+    displaySummary(currentRecords);
 }
 
 async function initialize() {
